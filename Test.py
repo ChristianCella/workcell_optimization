@@ -17,7 +17,7 @@ def euler_to_quaternion(roll, pitch, yaw, degrees = False):
 def main():
 
     # Path to the MuJoCo XML file
-    xml_path = "C:/Users/chris/Desktop/MuJoCo_test/mujoco_menagerie/universal_robots_ur5e/scene.xml"
+    xml_path = "C:/Users/chris/OneDrive - Politecnico di Milano/Politecnico di Milano/PhD - dottorato/GitHub repositories Lenovo/Screwdriving_MuJoCo/universal_robots_ur5e/scene.xml"
     
     try:
         model = mujoco.MjModel.from_xml_path(xml_path) # Load model
