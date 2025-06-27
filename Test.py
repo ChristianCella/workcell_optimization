@@ -4,6 +4,7 @@ import mujoco.viewer # Launch the graphical viewer
 import time
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+import os
 
 def euler_to_quaternion(roll, pitch, yaw, degrees = False):
     '''
@@ -16,9 +17,9 @@ def euler_to_quaternion(roll, pitch, yaw, degrees = False):
 
 def main():
 
-    # Path to the MuJoCo XML file
-    xml_path = "C:/Users/chris/OneDrive - Politecnico di Milano/Politecnico di Milano/PhD - dottorato/GitHub repositories Lenovo/Screwdriving_MuJoCo/universal_robots_ur5e/scene.xml"
-    
+    base_dir = os.path.dirname(__file__)
+    xml_path = os.path.join(base_dir, "universal_robots_ur5e/scene.xml")
+
     try:
         model = mujoco.MjModel.from_xml_path(xml_path) # Load model
         data = mujoco.MjData(model) # data object to store dynamic state      
