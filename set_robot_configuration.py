@@ -63,7 +63,8 @@ def main():
                 print(f"The torques to compensate gravity at iteration {iteration} are: {gravity}")
 
                 # Simulate for 2 seconds
-                for _ in range(int(2.0 / model.opt.timestep)):
+                start_time = time.perf_counter()
+                while time.perf_counter() - start_time < 3.0:
                     if not viewer.is_running():
                         break
                     for i in range(6):

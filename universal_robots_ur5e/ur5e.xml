@@ -122,13 +122,17 @@
   </worldbody>
 
   <actuator>
-    <motor joint="shoulder_pan_joint" ctrlrange="-200 200"/>
-    <motor joint="shoulder_lift_joint" ctrlrange="-200 200"/>
-    <motor joint="elbow_joint" ctrlrange="-200 200"/>
-    <motor joint="wrist_1_joint" ctrlrange="-200 200"/>
-    <motor joint="wrist_2_joint" ctrlrange="-200 200"/>
-    <motor joint="wrist_3_joint" ctrlrange="-200 200"/>
+    <general joint="shoulder_pan_joint" gear="1" gainprm="1 0 0"/>
+    <general joint="shoulder_lift_joint" gear="1" gainprm="1 0 0"/>
+    <general joint="elbow_joint" gear="1" gainprm="1 0 0"/>
+    <general joint="wrist_1_joint" gear="1" gainprm="1 0 0"/>
+    <general joint="wrist_2_joint" gear="1" gainprm="1 0 0"/>
+    <general joint="wrist_3_joint" gear="1" gainprm="1 0 0"/>
   </actuator>
+
+
+
+
 
 
   <keyframe>
