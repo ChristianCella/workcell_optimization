@@ -6,18 +6,12 @@ import time
 import os
 from scipy.spatial.transform import Rotation as R
 
-''' 
-Open loop control in torque to compensate gravity and external wrench.
-PD (or PID) used to correct minor errors in the inverse dynamics computation.
-'''
-
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
     q = r.as_quat()
     return [q[3], q[0], q[1], q[2]]  # [w, x, y, z]
 
 def main():
-    # === User switch: True = smooth move (PD+force); False = instant placement with gravity+external compensation ===
     move_robot = True  # <----- SET THIS TO False for instantaneous placement
 
     base_dir = os.path.dirname(__file__)
@@ -31,7 +25,6 @@ def main():
         for i in range(model.nbody):
             print(model.body(i).name)
 
-        # Target joint configurations (in radians)
         target_qpos_list = [
             np.radians([100, -94.96, 101.82, -95.72, -96.35, -40.97]),
             np.radians([15.99, -62.07, 121.58, -159.82, -99, -90]),
@@ -42,27 +35,23 @@ def main():
 
         base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
         site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "ee_site")
-        wrist_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "wrist_3_link")
+        #wrist_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "wrist_3_link")
+        wrist_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ee_frame_visual_only")
+        force_arrow_geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "force_arrow_geom")
 
-        # External force and torque (world frame)
         external_force_world = np.array([0.0, 0.0, 50.0])
-        external_torque_world = np.array([20.0, 10.0, 0.0])
+        external_torque_world = np.array([0.0, 0.0, 0.0])
 
         with mujoco.viewer.launch_passive(model, data) as viewer:
 
-            # Wait for enter to be pressed
             input("Press Enter to start the robot configuration...")
 
-            # Start iterating
             for idx, desired_qpos in enumerate(target_qpos_list):
-
                 print(f"\n==== Configuration {idx+1} ====")
-                # Move base for fun (or keep fixed if you want)
                 model.body_pos[base_body_id] = [idx * 0.3, idx * 0.1, 0.5]
-                model.body_quat[base_body_id] = euler_to_quaternion(70, -20, 30, degrees=True)
+                model.body_quat[base_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
 
                 if move_robot:
-                    # Smoothly move using PD + external force
                     seconds_per_config = 10.0
                     start_time = time.perf_counter()
                     last_time = start_time
@@ -76,7 +65,6 @@ def main():
 
                         mujoco.mj_forward(model, data)
                         r = data.site_xpos[site_id] - data.xpos[wrist_body_id]
-                        print(f"The value of r is: {r}")
                         corrected_force = external_force_world
                         corrected_torque = np.cross(r, external_force_world) + external_torque_world
                         data.xfrc_applied[wrist_body_id, :3] = -corrected_force
@@ -92,7 +80,6 @@ def main():
                         gravity_comp = data.qfrc_bias[:6]
                         total_torque = gravity_comp + tau_ext
 
-                        # PD control
                         Kp = np.array([100, 100, 100, 20, 20, 20])
                         Kd = np.array([20, 20, 20, 10, 10, 10])
                         Ki = np.array([3, 3, 3, 1, 1, 1])
@@ -105,23 +92,37 @@ def main():
 
                         data.ctrl[:6] = total_torque + pid_torque
 
+                        # === Update force arrow visualization ===
+                        force = external_force_world
+                        force_norm = np.linalg.norm(force)
+                        if force_norm > 1e-8:
+                            force_dir = force / force_norm
+                        else:
+                            force_dir = np.array([0, 0, 1])
+                        arrow_length = 0.02 + 0.001 * force_norm
+                        data.mocap_pos[0, :] = data.site_xpos[site_id] + 0.5 * arrow_length * force_dir
+                        z_axis = np.array([0, 0, 1])
+                        rot, _ = R.align_vectors([force_dir], [z_axis])
+                        quat = rot.as_quat()
+                        data.mocap_quat[0, :] = [quat[3], quat[0], quat[1], quat[2]]
+                        model.geom_size[force_arrow_geom_id][1] = arrow_length / 2.0
+                        # ========================================
+
                         mujoco.mj_step(model, data)
                         viewer.sync()
                         time.sleep(model.opt.timestep)
-                    data.xfrc_applied[wrist_body_id, :] = 0.0  # Clear
+                    data.xfrc_applied[wrist_body_id, :] = 0.0
 
                 else:
-                    # Instantly set the robot to the new configuration
                     data.qpos[:6] = desired_qpos.copy()
                     data.qvel[:6] = 0.0
                     mujoco.mj_forward(model, data)
                     data.qacc[:] = 0.0
 
-                    seconds_per_config = 3.0
+                    seconds_per_config = 10.0
                     start_time = time.perf_counter()
                     while time.perf_counter() - start_time < seconds_per_config:
                         mujoco.mj_forward(model, data)
-                        # External force at this pose
                         r = data.site_xpos[site_id] - data.xpos[wrist_body_id]
                         corrected_force = external_force_world
                         corrected_torque = np.cross(r, external_force_world) + external_torque_world
@@ -138,7 +139,6 @@ def main():
                         gravity_comp = data.qfrc_bias[:6]
                         total_torque = gravity_comp + tau_ext
 
-                        # PD control
                         Kp = np.array([500, 500, 500, 150, 150, 150])
                         Kd = np.array([30, 30, 30, 30, 30, 30])
 
@@ -146,15 +146,31 @@ def main():
                         qd_error = 0.0 - data.qvel[:6]
                         pd_torque = Kp * q_error + Kd * qd_error
 
-                        # No PD since we do not want movement, just compensation
                         data.ctrl[:6] = total_torque + pd_torque
+                        #data.ctrl[:6] = total_torque
+
+                        # === Update force arrow visualization ===
+                        force = external_force_world
+                        force_norm = np.linalg.norm(force)
+                        if force_norm > 1e-8:
+                            force_dir = force / force_norm
+                        else:
+                            force_dir = np.array([0, 0, 1])
+                        arrow_length = 0.02 + 0.001 * force_norm
+                        data.mocap_pos[0, :] = data.site_xpos[site_id] + 0.5 * arrow_length * force_dir
+                        # data.mocap_pos[0, :] = data.xpos[wrist_body_id] + 0.5 * arrow_length * force_dir
+                        z_axis = np.array([0, 0, 1])
+                        rot, _ = R.align_vectors([force_dir], [z_axis])
+                        quat = rot.as_quat()
+                        data.mocap_quat[0, :] = [quat[3], quat[0], quat[1], quat[2]]
+                        model.geom_size[force_arrow_geom_id][1] = arrow_length / 2.0
+                        # ========================================
 
                         mujoco.mj_step(model, data)
                         viewer.sync()
                         time.sleep(model.opt.timestep)
-                    data.xfrc_applied[wrist_body_id, :] = 0.0  # Clear applied force after
+                    data.xfrc_applied[wrist_body_id, :] = 0.0
 
-                # KPIs, print or collect as you wish
                 print("Final joint angles (deg):", np.round(np.degrees(data.qpos[:6]), 2))
 
             print("\n--- Finished all configurations. ---")
