@@ -6,6 +6,11 @@ import time
 import os
 from scipy.spatial.transform import Rotation as R
 
+''' 
+Open loop control in torque to compensate gravity and external wrench.
+PD (or PID) used to correct minor errors in the inverse dynamics computation.
+'''
+
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
     q = r.as_quat()
@@ -13,7 +18,7 @@ def euler_to_quaternion(roll, pitch, yaw, degrees=False):
 
 def main():
     # === User switch: True = smooth move (PD+force); False = instant placement with gravity+external compensation ===
-    move_robot = True  # <----- SET THIS TO False for instantaneous placement
+    move_robot = False  # <----- SET THIS TO False for instantaneous placement
 
     base_dir = os.path.dirname(__file__)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e/scene.xml")
@@ -55,9 +60,17 @@ def main():
 
                 if move_robot:
                     # Smoothly move using PD + external force
-                    seconds_per_config = 3.0
+                    seconds_per_config = 10.0
                     start_time = time.perf_counter()
+                    last_time = start_time
+                    error_integral = np.zeros(6)
+
                     while time.perf_counter() - start_time < seconds_per_config:
+
+                        current_time = time.perf_counter()
+                        dt = current_time - last_time
+                        last_time = current_time
+
                         mujoco.mj_forward(model, data)
                         r = data.site_xpos[site_id] - data.xpos[wrist_body_id]
                         corrected_force = external_force_world
@@ -76,14 +89,17 @@ def main():
                         total_torque = gravity_comp + tau_ext
 
                         # PD control
-                        Kp = np.array([200, 200, 200, 100, 100, 100])
+                        Kp = np.array([100, 100, 100, 20, 20, 20])
                         Kd = np.array([20, 20, 20, 10, 10, 10])
+                        Ki = np.array([3, 3, 3, 1, 1, 1])
 
                         q_error = desired_qpos - data.qpos[:6]
                         qd_error = 0.0 - data.qvel[:6]
-                        pd_torque = Kp * q_error + Kd * qd_error
+                        error_integral += q_error * dt
 
-                        data.ctrl[:6] = total_torque + pd_torque
+                        pid_torque = Kp * q_error + Ki * error_integral + Kd * qd_error
+
+                        data.ctrl[:6] = total_torque + pid_torque
 
                         mujoco.mj_step(model, data)
                         viewer.sync()
