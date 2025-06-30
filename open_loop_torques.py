@@ -18,7 +18,7 @@ def euler_to_quaternion(roll, pitch, yaw, degrees=False):
 
 def main():
     # === User switch: True = smooth move (PD+force); False = instant placement with gravity+external compensation ===
-    move_robot = False  # <----- SET THIS TO False for instantaneous placement
+    move_robot = True  # <----- SET THIS TO False for instantaneous placement
 
     base_dir = os.path.dirname(__file__)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e/scene.xml")
@@ -27,6 +27,9 @@ def main():
         model = mujoco.MjModel.from_xml_path(xml_path)
         data = mujoco.MjData(model)
         mujoco.mj_resetData(model, data)
+
+        for i in range(model.nbody):
+            print(model.body(i).name)
 
         # Target joint configurations (in radians)
         target_qpos_list = [
@@ -73,6 +76,7 @@ def main():
 
                         mujoco.mj_forward(model, data)
                         r = data.site_xpos[site_id] - data.xpos[wrist_body_id]
+                        print(f"The value of r is: {r}")
                         corrected_force = external_force_world
                         corrected_torque = np.cross(r, external_force_world) + external_torque_world
                         data.xfrc_applied[wrist_body_id, :3] = -corrected_force
