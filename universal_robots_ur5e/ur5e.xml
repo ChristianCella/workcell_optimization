@@ -112,6 +112,7 @@
                   <geom material="linkgray" mesh="wrist3" class="visual"/>
                   <geom class="eef_collision" pos="0 0.08 0" quat="1 1 0 0" size="0.04 0.02"/>
                   <site name="attachment_site" pos="0 0.1 0" quat="-1 1 0 0"/>
+                  <site name="ee_site" pos="0 0.08 0" quat="0 -0 0.7071 -0.7071"/>
                 </body>
               </body>
             </body>
@@ -122,13 +123,14 @@
   </worldbody>
 
   <actuator>
-    <general joint="shoulder_pan_joint" gear="1" gainprm="1 0 0"/>
-    <general joint="shoulder_lift_joint" gear="1" gainprm="1 0 0"/>
-    <general joint="elbow_joint" gear="1" gainprm="1 0 0"/>
-    <general joint="wrist_1_joint" gear="1" gainprm="1 0 0"/>
-    <general joint="wrist_2_joint" gear="1" gainprm="1 0 0"/>
-    <general joint="wrist_3_joint" gear="1" gainprm="1 0 0"/>
+    <motor joint="shoulder_pan_joint" gear="1"/>
+    <motor joint="shoulder_lift_joint" gear="1"/>
+    <motor joint="elbow_joint" gear="1"/>
+    <motor joint="wrist_1_joint" gear="1"/>
+    <motor joint="wrist_2_joint" gear="1"/>
+    <motor joint="wrist_3_joint" gear="1"/>
   </actuator>
+
 
 
 

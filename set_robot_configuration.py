@@ -69,10 +69,15 @@ def main():
                         break
                     for i in range(6):
                         data.ctrl[i] = gravity[i]
+                        #data.ctrl[i] = desired_qpos[i]
 
                     mujoco.mj_step(model, data)
                     viewer.sync()
                     time.sleep(model.opt.timestep)
+
+                # After the simulation you get the KPIs
+
+                # ... rest of the code
 
     except Exception as e:
         print(f"Error: {e}")
