@@ -4,14 +4,6 @@ from pathlib import Path
 import os
 import sys
 from pathlib import Path
-
-# Add the inner mink folder to sys.path
-mink_pkg_root = Path(__file__).parent / "mink"
-if str(mink_pkg_root) not in sys.path:
-    sys.path.insert(0, str(mink_pkg_root))
-
-print("sys.path:", sys.path)  # Debug print
-
 import mink
 from mink.contrib import TeleopMocap
 
