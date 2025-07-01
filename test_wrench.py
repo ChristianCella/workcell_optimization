@@ -35,7 +35,7 @@ def main():
         force_arrow_geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "force_arrow_geom")
 
         # Forces defined in the world frame and applied at the tool center
-        external_force_world = np.array([0.0, 0.0, 0.0])
+        external_force_world = np.array([0.0, 0.0, 5.0])
         external_torque_world = np.array([0.0, 0.0, 0.0])
 
         with mujoco.viewer.launch_passive(model, data) as viewer:
@@ -47,12 +47,12 @@ def main():
                 
                 # Set the robot base to a new pose
                 #model.body_pos[base_body_id] = [idx * 0.3, idx * 0.1, 0.5]
-                model.body_pos[base_body_id] = [0.0, 0.0, 0.0]
-                model.body_quat[base_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
+                model.body_pos[base_body_id] = [0.2, 0.2, 0.2]
+                model.body_quat[base_body_id] = euler_to_quaternion(45, 0, 0, degrees=True)
 
                 # Set the tool to a new pose with respect to the ee (flange)
-                model.body_pos[tool_body_id] = [20.0, 20.0, 40.0]
-                model.body_quat[tool_body_id] = euler_to_quaternion(10, 15, 0, degrees=True)
+                model.body_pos[tool_body_id] = [0.2, 0.2, 0.3]
+                model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
 
                 # Set the position and velocity to 0
                 data.qpos[:6] = desired_qpos.copy()
@@ -67,9 +67,10 @@ def main():
                     mujoco.mj_forward(model, data)
 
                     # Express torques on the ee in real world coodinates
-                    r = data.xpos[tool_body_id] - data.site_xpos[ee_site_id]
+                    #r = data.xpos[tool_body_id] - data.site_xpos[ee_site_id]
                     corrected_force = external_force_world
-                    corrected_torque = np.cross(r, external_force_world) + external_torque_world
+                    #corrected_torque = np.cross(r, external_force_world) + external_torque_world
+                    corrected_torque = external_torque_world
 
                     # Apply the wrench in the simulation (of course, opposite to the previous)
                     data.xfrc_applied[tool_body_id, :3] = -corrected_force
@@ -78,10 +79,8 @@ def main():
                     # Get the Jacobians
                     jacp = np.zeros((3, model.nv))
                     jacr = np.zeros((3, model.nv))
-                    mujoco.mj_jacSite(model, data, jacp, jacr, ee_site_id)
+                    mujoco.mj_jacSite(model, data, jacp, jacr, tool_site_id)
                     J6 = np.vstack([jacp, jacr])[:, :6]
-
-                    print(f"the jacobian is:\n{J6}")
 
                     # Wrench aplied at the end-effector in terms of world coordinates
                     wrench_world = np.hstack([external_force_world, external_torque_world])
@@ -91,15 +90,18 @@ def main():
                     gravity_comp = data.qfrc_bias[:6]
                     total_torque = gravity_comp + tau_ext
 
-                    Kp = np.array([500, 500, 500, 150, 150, 150])
-                    Kd = np.array([30, 30, 30, 30, 30, 30])
+                    #Kp = np.array([500, 500, 500, 150, 150, 150])
+                    #Kd = np.array([30, 30, 30, 30, 30, 30])
+
+                    Kp = np.array([5, 5, 5, 1.5, 1.5, 1.5])
+                    Kd = np.array([0.3, 0.3,0.3, 0.8, 0.8, 0.8])
 
                     q_error = desired_qpos - data.qpos[:6]
                     qd_error = 0.0 - data.qvel[:6]
                     pd_torque = Kp * q_error + Kd * qd_error
 
-                    #data.ctrl[:6] = total_torque + pd_torque
-                    data.ctrl[:6] = total_torque
+                    data.ctrl[:6] = total_torque + pd_torque
+                    #data.ctrl[:6] = total_torque
 
                     # === Update force arrow visualization ===
                     force = external_force_world
@@ -120,7 +122,7 @@ def main():
                     mujoco.mj_step(model, data)
                     viewer.sync()
                     time.sleep(model.opt.timestep)
-                    data.xfrc_applied[tool_body_id, :] = 0.0
+                    #data.xfrc_applied[tool_body_id, :] = 0.0
 
                 print("Final joint angles (deg):", np.round(np.degrees(data.qpos[:6]), 2))
 
