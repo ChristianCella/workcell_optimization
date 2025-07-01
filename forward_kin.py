@@ -33,7 +33,7 @@ def main():
     gravity_comp = gravity[:6]
 
     # ---- Get ee_site pose ----
-    site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "attachment_site") # use 'attachment_site' or 'ee_site' in the same way
+    site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "ee_site") 
     pos = data.site_xpos[site_id]
     mat = data.site_xmat[site_id].reshape(3, 3)
     quat = R.from_matrix(mat).as_quat()  # Returns (x, y, z, w)

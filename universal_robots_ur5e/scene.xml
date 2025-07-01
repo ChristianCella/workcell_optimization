@@ -19,9 +19,26 @@
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
-    <body name="force_arrow_body" pos="0 0 0" mocap="true">
-        <geom name="force_arrow_geom" type="cylinder" size="0.005 0.1" rgba="1 0 0 1" contype="0" conaffinity="0"/>
+    <body name="force_arrow_x" pos="0 0 0" mocap="true">
+      <geom name="force_arrow_x_geom" type="cylinder" size="0.005 0.1" rgba="1 0 0 1" contype="0" conaffinity="0"/>
     </body>
+    <body name="force_arrow_y" pos="0 0 0" mocap="true">
+        <geom name="force_arrow_y_geom" type="cylinder" size="0.005 0.1" rgba="0 1 0 1" contype="0" conaffinity="0"/>
+    </body>
+    <body name="force_arrow_z" pos="0 0 0" mocap="true">
+        <geom name="force_arrow_z_geom" type="cylinder" size="0.005 0.1" rgba="0 0 1 1" contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="moment_arrow_x" pos="0 0 0" mocap="true">
+        <geom name="moment_arrow_x_geom" type="cylinder" size="0.009 0.06" rgba="1 0.8 0.8 1" contype="0" conaffinity="0"/>
+    </body>
+    <body name="moment_arrow_y" pos="0 0 0" mocap="true">
+        <geom name="moment_arrow_y_geom" type="cylinder" size="0.009 0.06" rgba="0.8 1 0.8 1" contype="0" conaffinity="0"/>
+    </body>
+    <body name="moment_arrow_z" pos="0 0 0" mocap="true">
+        <geom name="moment_arrow_z_geom" type="cylinder" size="0.009 0.06" rgba="0.8 0.8 1 1" contype="0" conaffinity="0"/>
+    </body>
+
   </worldbody>
 
 </mujoco>

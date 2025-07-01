@@ -6,10 +6,23 @@ import time
 import os
 from scipy.spatial.transform import Rotation as R
 
+# Variables
+verbose = True
+Kp = np.array([500, 500, 500, 150, 150, 150])
+Kd = np.array([30, 30, 30, 30, 30, 30])
+Ki = np.array([0, 0, 0, 0, 0, 0])
+
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
     q = r.as_quat()
     return [q[3], q[0], q[1], q[2]]  # [w, x, y, z]
+
+def controller(Kp, Kd, Ki, q_desired, q_current, qd_current, error_integral, dt):
+    q_error = q_desired - q_current
+    qd_error = 0.0 - qd_current
+    error_integral += q_error * dt
+    control_torque = Kp * q_error + Ki * error_integral + Kd * qd_error
+    return control_torque
 
 def main():
 
@@ -24,6 +37,10 @@ def main():
         # Target poses for the robot
         target_qpos_list = [
             np.radians([100, -94.96, 101.82, -95.72, -96.35, -40.97]),
+            np.radians([15.99, -62.07, 121.58, -159.82, -99, -90]),
+            np.radians([-28.83, -84.36, 102.8, 18.69, -98.83, -101.46]),
+            np.radians([-29.77, -160.55, 110.57, -186.16, -98.81, -101.15]),
+            np.radians([-124.35, -158.41, 147, -153.21, -155.31, -98.24])
         ]
 
         # Define bodies, geometries and sites
@@ -31,12 +48,11 @@ def main():
         tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
 
         tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
-        ee_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "ee_site")
-        force_arrow_geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "force_arrow_geom")
 
         # Forces defined in the world frame and applied at the tool center
-        external_force_world = np.array([0.0, 0.0, 5.0])
+        external_force_world = np.array([0.0, 0.0, 40.0])
         external_torque_world = np.array([0.0, 0.0, 0.0])
+        wrench_world = np.hstack([external_force_world, external_torque_world])
 
         with mujoco.viewer.launch_passive(model, data) as viewer:
 
@@ -44,14 +60,13 @@ def main():
 
             # Scan all the poses
             for idx, desired_qpos in enumerate(target_qpos_list):
-                
+
                 # Set the robot base to a new pose
-                #model.body_pos[base_body_id] = [idx * 0.3, idx * 0.1, 0.5]
-                model.body_pos[base_body_id] = [0.2, 0.2, 0.2]
-                model.body_quat[base_body_id] = euler_to_quaternion(45, 0, 0, degrees=True)
+                model.body_pos[base_body_id] = [idx * 0.3, idx * 0.1, 0.5]
+                model.body_quat[base_body_id] = euler_to_quaternion(45, 45, 0, degrees=True)
 
                 # Set the tool to a new pose with respect to the ee (flange)
-                model.body_pos[tool_body_id] = [0.2, 0.2, 0.3]
+                model.body_pos[tool_body_id] = [0.1, 0.1, 0.1]
                 model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
 
                 # Set the position and velocity to 0
@@ -63,61 +78,101 @@ def main():
                 # Simulate for 10 seconds
                 seconds_per_config = 10.0
                 start_time = time.perf_counter()
+                last_time = start_time
+                error_integral = np.zeros(6)
+
                 while time.perf_counter() - start_time < seconds_per_config:
                     mujoco.mj_forward(model, data)
 
-                    # Express torques on the ee in real world coodinates
-                    #r = data.xpos[tool_body_id] - data.site_xpos[ee_site_id]
-                    corrected_force = external_force_world
-                    #corrected_torque = np.cross(r, external_force_world) + external_torque_world
-                    corrected_torque = external_torque_world
+                    # Compute the integration time
+                    current_time = time.perf_counter()
+                    dt = current_time - last_time
+                    last_time = current_time
 
                     # Apply the wrench in the simulation (of course, opposite to the previous)
-                    data.xfrc_applied[tool_body_id, :3] = -corrected_force
-                    data.xfrc_applied[tool_body_id, 3:] = -corrected_torque
+                    data.xfrc_applied[tool_body_id, :3] = -external_force_world
+                    data.xfrc_applied[tool_body_id, 3:] = -external_torque_world
 
                     # Get the Jacobians
                     jacp = np.zeros((3, model.nv))
                     jacr = np.zeros((3, model.nv))
-                    mujoco.mj_jacSite(model, data, jacp, jacr, tool_site_id)
+                    mujoco.mj_jacSite(model, data, jacp, jacr, tool_site_id) # From world to tool site
                     J6 = np.vstack([jacp, jacr])[:, :6]
 
-                    # Wrench aplied at the end-effector in terms of world coordinates
-                    wrench_world = np.hstack([external_force_world, external_torque_world])
+                    # Compute the total torque needed to stabilize the robot                   
                     tau_ext = J6.T @ wrench_world
-
-                    # Compute the total torque (gravity + wrench) and add the PD controller
                     gravity_comp = data.qfrc_bias[:6]
-                    total_torque = gravity_comp + tau_ext
+                    control_torque = controller(Kp, Kd, Ki, desired_qpos, data.qpos[:6], data.qvel[:6], error_integral, dt)
+                    data.ctrl[:6] = gravity_comp + tau_ext + control_torque # ! Apply the control torque
 
-                    #Kp = np.array([500, 500, 500, 150, 150, 150])
-                    #Kd = np.array([30, 30, 30, 30, 30, 30])
+                    # Debugging
+                    if verbose:
+                        print(f"The torque due to gravity is: {np.round(gravity_comp, 2)}")
+                        print(f"The torque due to the external action is: {np.round(tau_ext, 2)}")
+                        print(f"The PD torque is: {np.round(control_torque, 2)}")
+                        print("Total torque applied to the joints:", np.round(data.ctrl[:6], 2))
+                        print("Actual applied torques:", data.qfrc_actuator[:6])
 
-                    Kp = np.array([5, 5, 5, 1.5, 1.5, 1.5])
-                    Kd = np.array([0.3, 0.3,0.3, 0.8, 0.8, 0.8])
 
-                    q_error = desired_qpos - data.qpos[:6]
-                    qd_error = 0.0 - data.qvel[:6]
-                    pd_torque = Kp * q_error + Kd * qd_error
+                    # --- Visualization of all wrench components at tool_site ---
 
-                    data.ctrl[:6] = total_torque + pd_torque
-                    #data.ctrl[:6] = total_torque
+                    # Get geom IDs (do this once, outside the sim loop)
+                    force_arrow_geom_ids = [
+                        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "force_arrow_x_geom"),
+                        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "force_arrow_y_geom"),
+                        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "force_arrow_z_geom"),
+                    ]
+                    moment_arrow_geom_ids = [
+                        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "moment_arrow_x_geom"),
+                        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "moment_arrow_y_geom"),
+                        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "moment_arrow_z_geom"),
+                    ]
 
-                    # === Update force arrow visualization ===
-                    force = external_force_world
-                    force_norm = np.linalg.norm(force)
-                    if force_norm > 1e-8:
-                        force_dir = force / force_norm
-                    else:
-                        force_dir = np.array([0, 0, 1])
-                    arrow_length = 0.4 + 0.001 * force_norm
-                    data.mocap_pos[0, :] = data.site_xpos[tool_site_id] + 0.5 * arrow_length * force_dir
+                    # Visualization parameters
+                    force_arrow_length_scale = 0.0035  # meters per Newton
+                    force_arrow_base = 0.15
+                    moment_arrow_length_scale = 0.0011 # meters per Nm
+                    moment_arrow_base = 0.1
+
+                    start = data.site_xpos[tool_site_id]
                     z_axis = np.array([0, 0, 1])
-                    rot, _ = R.align_vectors([force_dir], [z_axis])
-                    quat = rot.as_quat()
-                    data.mocap_quat[0, :] = [quat[3], quat[0], quat[1], quat[2]]
-                    model.geom_size[force_arrow_geom_id][1] = arrow_length / 2
-                    # ========================================
+
+                    # Forces (XYZ)
+                    for i in range(3):
+                        val = external_force_world[i]
+                        direction = np.zeros(3)
+                        direction[i] = 1
+                        length = force_arrow_base + force_arrow_length_scale * np.abs(val)
+                        end = start + np.sign(val) * direction * length
+
+                        # Set mocap body position/orientation for this arrow
+                        data.mocap_pos[i, :] = 0.5 * (start + end)
+                        if np.linalg.norm(direction) > 1e-8:
+                            rot, _ = R.align_vectors([direction], [z_axis])
+                            quat = rot.as_quat()
+                            data.mocap_quat[i, :] = [quat[3], quat[0], quat[1], quat[2]]
+                        else:
+                            data.mocap_quat[i, :] = [1, 0, 0, 0]
+                        model.geom_size[force_arrow_geom_ids[i]][1] = length / 2  # half-length
+
+                    # Moments (XYZ)
+                    for i in range(3):
+                        val = external_torque_world[i]
+                        direction = np.zeros(3)
+                        direction[i] = 1
+                        length = moment_arrow_base + moment_arrow_length_scale * np.abs(val)
+                        end = start + np.sign(val) * direction * length
+
+                        idx = i + 3  # mocap/body index for moments
+                        data.mocap_pos[idx, :] = 0.5 * (start + end)
+                        if np.linalg.norm(direction) > 1e-8:
+                            rot, _ = R.align_vectors([direction], [z_axis])
+                            quat = rot.as_quat()
+                            data.mocap_quat[idx, :] = [quat[3], quat[0], quat[1], quat[2]]
+                        else:
+                            data.mocap_quat[idx, :] = [1, 0, 0, 0]
+                        model.geom_size[moment_arrow_geom_ids[i]][1] = length / 2  # half-length
+
 
                     mujoco.mj_step(model, data)
                     viewer.sync()

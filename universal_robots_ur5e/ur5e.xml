@@ -155,12 +155,12 @@
     </body>
   </worldbody>
   <actuator>
-    <motor joint="shoulder_pan_joint" gear="1"/>
-    <motor joint="shoulder_lift_joint" gear="1"/>
-    <motor joint="elbow_joint" gear="1"/>
-    <motor joint="wrist_1_joint" gear="1"/>
-    <motor joint="wrist_2_joint" gear="1"/>
-    <motor joint="wrist_3_joint" gear="1"/>
+    <motor joint="shoulder_pan_joint" gear="1" forcerange="-300 300"/>
+    <motor joint="shoulder_lift_joint" gear="1" forcerange="-300 300"/>
+    <motor joint="elbow_joint" gear="1" forcerange="-300 300"/>
+    <motor joint="wrist_1_joint" gear="1" forcerange="-300 300"/>
+    <motor joint="wrist_2_joint" gear="1" forcerange="-300 300"/>
+    <motor joint="wrist_3_joint" gear="1" forcerange="-300 300"/>
   </actuator>
   <keyframe>
     <key name="home" qpos="-1.5708 -1.5708 1.5708 -1.5708 -1.5708 0" ctrl="-1.5708 -1.5708 1.5708 -1.5708 -1.5708 0"/>
