@@ -41,7 +41,6 @@ def set_joint_configuration(data, model, desired_qpos):
     mujoco.mj_forward(model, data)
     data.qacc[:] = 0.0
 
-
 def main():
 
     # Path setup
@@ -51,8 +50,8 @@ def main():
 
     # Variables
     verbose = False
-    robot_motion = True
-    enable_control = True
+    robot_motion = False
+    enable_control = False
     Kp = np.array([500, 500, 500, 150, 150, 150])
     Kd = np.array([30, 30, 30, 30, 30, 30])
     Ki = np.array([0, 0, 0, 0, 0, 0])
@@ -77,7 +76,7 @@ def main():
         tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
 
         # Forces defined in the world frame and applied at the tool center
-        external_force_world = np.array([0.0, 5.0, 0.0])
+        external_force_world = np.array([0.0, 0.0, 0.0])
         external_torque_world = np.array([0.0, 0.0, 0.0])
         wrench_world = np.hstack([external_force_world, external_torque_world])
 
@@ -116,11 +115,11 @@ def main():
                     dt = current_time - last_time
                     last_time = current_time
 
-                    # Apply the wrench in the simulation (of course, opposite to the previous)
+                    # Apply the wrench (NOTE: always expressed in the world frame)
                     data.xfrc_applied[tool_body_id, :3] = -external_force_world
                     data.xfrc_applied[tool_body_id, 3:] = -external_torque_world
 
-                    # Get the Jacobians
+                    # Get the Jacobian matrix from the world frame to the tool site
                     jacp = np.zeros((3, model.nv))
                     jacr = np.zeros((3, model.nv))
                     mujoco.mj_jacSite(model, data, jacp, jacr, tool_site_id) # From world to tool site
