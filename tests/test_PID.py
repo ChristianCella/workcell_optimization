@@ -4,12 +4,22 @@ import mujoco.viewer
 import numpy as np
 import time
 import os
+import sys
 from scipy.spatial.transform import Rotation as R
 
+''' 
+Test to see if a simple PID controller can stabilize the rboot around a given configuration.
+- In this case, you are not computing torques, you are applying a PID controller to compensate for the
+    motion that arises due to gravity and an external wrench.
+- Torques are read from the joints directly: if the PID works as intended, the values you read should be
+    close to the torques that you would compute with a static model (test_wrench.py).
+    NOTE: impose the same configuration as in test_wrench.py, otherwise the torques will be different!
+'''
+
 # PID gains
-Kp = np.array([400, 400, 400, 400, 400, 400])
-Kd = np.array([40, 40, 40, 30, 30, 30])
-Ki = np.array([7, 7, 7, 7, 7, 7])
+Kp = np.array([700, 700, 700, 700, 700, 700])
+Kd = np.array([70, 70, 70, 70, 70, 70])
+Ki = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
@@ -17,7 +27,10 @@ def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     return [q[3], q[0], q[1], q[2]]  # [w, x, y, z]
 
 def main():
-    base_dir = os.path.dirname(__file__)
+
+    # Path setup
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    sys.path.append(base_dir)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e/scene.xml")
 
     try:
@@ -37,10 +50,9 @@ def main():
         # Define body and site IDs
         base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
         tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
-        tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
 
         # External wrench (edit as you like)
-        external_force_world = np.array([0.0, 0.0, 0.0])
+        external_force_world = np.array([0.0, 5.0, 0.0])
         external_torque_world = np.array([0.0, 0.0, 0.0])
 
         with mujoco.viewer.launch_passive(model, data) as viewer:
@@ -50,10 +62,10 @@ def main():
                 print(f"\n==== Moving to target configuration {i+1} ====")
 
                 # (Optional) move base or tool if you want
-                # model.body_pos[base_body_id] = [i*0.2, 0.0, 0.5]
-                # model.body_quat[base_body_id] = euler_to_quaternion(45, 45, 0, degrees=True)
-                # model.body_pos[tool_body_id] = [0.1, 0.1, 0.1]
-                # model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
+                model.body_pos[base_body_id] = [i*0.2, 0.0, 0.5]
+                model.body_quat[base_body_id] = euler_to_quaternion(45, 45, 0, degrees=True)
+                model.body_pos[tool_body_id] = [0.1, 0.1, 0.1]
+                model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
 
                 # INSTANTANEOUSLY set new pose (reset velocities!)
                 data.qpos[:6] = desired_qpos.copy()
@@ -91,7 +103,7 @@ def main():
                     viewer.sync()
                     time.sleep(model.opt.timestep)
 
-                    # PRINT: what torques are actually being applied at each joint?
+                    # ! Display the torques that are applied to the robot
                     print(f"{time.perf_counter()-start_time:.2f}\t{np.round(data.qfrc_actuator[:6], 2)}")
 
                 print("\nFinal joint angles (deg):", np.round(np.degrees(data.qpos[:6]), 2))

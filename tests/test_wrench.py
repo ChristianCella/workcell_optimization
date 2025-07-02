@@ -4,13 +4,23 @@ import mujoco.viewer
 import numpy as np
 import time
 import os
+import sys
 from scipy.spatial.transform import Rotation as R
 
-# Variables
-verbose = True
-Kp = np.array([500, 500, 500, 150, 150, 150])
-Kd = np.array([30, 30, 30, 30, 30, 30])
-Ki = np.array([0, 0, 0, 0, 0, 0])
+''' 
+Case 1) robot_motion = False ==> Instantly impose a joint configuration to the robot.
+Open-loop torque control + PD compensator to obtain the static equilibrium of a robot under an external wrench.
+- The wrench (w) is applied in 'tool_site' and expressed in the world frame.
+- The dynamic model of a robot is the following: M(q) * qdd + C(q, qd) * qd + G(q) = tau + J^T * w (qd = qdd = 0 in static equilibrium)
+- The total torque tau = G(q) + J^T * w (ideally)
+- The Jacobian (J) must be the one from the world (since the force is in world frame) to the point of application of the force
+- The PD controller allows to compensate for small numerical errors.
+
+Case 2) robot_motion = True ==> Move the robot to a desired configuration.
+- In this case, you do not impose an initial configuration to the robot, but the PID controller will produce the
+    torques needed to reach the desired configuration.
+- Of course, since the trajectory is not given, the PID struggles in reaching the desired configuration, especially for joint 1.
+'''
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
@@ -24,10 +34,28 @@ def controller(Kp, Kd, Ki, q_desired, q_current, qd_current, error_integral, dt)
     control_torque = Kp * q_error + Ki * error_integral + Kd * qd_error
     return control_torque
 
+def set_joint_configuration(data, model, desired_qpos):
+    # Set the position and velocity to 0
+    data.qpos[:6] = desired_qpos.copy()
+    data.qvel[:6] = 0.0
+    mujoco.mj_forward(model, data)
+    data.qacc[:] = 0.0
+
+
 def main():
 
-    base_dir = os.path.dirname(__file__)
+    # Path setup
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    sys.path.append(base_dir)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e/scene.xml")
+
+    # Variables
+    verbose = False
+    robot_motion = True
+    enable_control = True
+    Kp = np.array([500, 500, 500, 150, 150, 150])
+    Kd = np.array([30, 30, 30, 30, 30, 30])
+    Ki = np.array([0, 0, 0, 0, 0, 0])
 
     try:
         model = mujoco.MjModel.from_xml_path(xml_path)
@@ -46,11 +74,10 @@ def main():
         # Define bodies, geometries and sites
         base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
         tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
-
         tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
 
         # Forces defined in the world frame and applied at the tool center
-        external_force_world = np.array([0.0, 0.0, 40.0])
+        external_force_world = np.array([0.0, 5.0, 0.0])
         external_torque_world = np.array([0.0, 0.0, 0.0])
         wrench_world = np.hstack([external_force_world, external_torque_world])
 
@@ -69,11 +96,11 @@ def main():
                 model.body_pos[tool_body_id] = [0.1, 0.1, 0.1]
                 model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
 
-                # Set the position and velocity to 0
-                data.qpos[:6] = desired_qpos.copy()
-                data.qvel[:6] = 0.0
-                mujoco.mj_forward(model, data)
-                data.qacc[:] = 0.0
+                if not robot_motion: # You do not want the robot to move, just set the configuration
+                    set_joint_configuration(data, model, desired_qpos)
+                else:
+                    # Enable the Integral action
+                    Ki = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 
                 # Simulate for 10 seconds
                 seconds_per_config = 10.0
@@ -103,7 +130,11 @@ def main():
                     tau_ext = J6.T @ wrench_world
                     gravity_comp = data.qfrc_bias[:6]
                     control_torque = controller(Kp, Kd, Ki, desired_qpos, data.qpos[:6], data.qvel[:6], error_integral, dt)
-                    data.ctrl[:6] = gravity_comp + tau_ext + control_torque # ! Apply the control torque
+
+                    if enable_control:
+                        data.ctrl[:6] = gravity_comp + tau_ext + control_torque # ! Apply the control torque
+                    else:
+                        data.ctrl[:6] = gravity_comp + tau_ext
 
                     # Debugging
                     if verbose:
@@ -114,7 +145,7 @@ def main():
                         print("Actual applied torques:", data.qfrc_actuator[:6])
 
 
-                    # --- Visualization of all wrench components at tool_site ---
+                    # ? Visualize the wrench components as cylinders
 
                     # Get geom IDs (do this once, outside the sim loop)
                     force_arrow_geom_ids = [
@@ -177,7 +208,7 @@ def main():
                     mujoco.mj_step(model, data)
                     viewer.sync()
                     time.sleep(model.opt.timestep)
-                    #data.xfrc_applied[tool_body_id, :] = 0.0
+                    data.xfrc_applied[tool_body_id, :] = 0.0
 
                 print("Final joint angles (deg):", np.round(np.degrees(data.qpos[:6]), 2))
 
