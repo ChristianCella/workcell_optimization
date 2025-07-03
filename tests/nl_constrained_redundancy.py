@@ -6,6 +6,11 @@ from scipy.spatial.transform import Rotation as R
 from scipy.optimize import minimize, NonlinearConstraint
 import time, os, sys
 
+''' 
+This script demonstrates how to use nonlinear constrained optimization to solve the redundancy problem in a 6-DOF robot arm.
+Compare the results with the previous test_redundancy.py script.
+'''
+
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
     q = r.as_quat()
