@@ -49,9 +49,9 @@ def main():
     xml_path = os.path.join(base_dir, "universal_robots_ur5e/scene.xml")
 
     # Variables
-    verbose = False
-    robot_motion = False
-    enable_control = False
+    verbose = True
+    robot_motion = True
+    enable_control = True
     Kp = np.array([500, 500, 500, 150, 150, 150])
     Kd = np.array([30, 30, 30, 30, 30, 30])
     Ki = np.array([0, 0, 0, 0, 0, 0])
