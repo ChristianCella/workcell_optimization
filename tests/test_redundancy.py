@@ -140,14 +140,14 @@ def main():
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
 
     target_poses = [
-        (np.array([0.3, 0.21, 0.1]), R.from_euler('xyz', [180, 0, 180], degrees=True).as_quat()),  # arbitrary orientation
+        (np.array([-0.3, -0.4, 0.05]), R.from_euler('xyz', [180, 0, 180], degrees=True).as_quat()),  # arbitrary orientation
     ]
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input("Press Enter to start the pose...")
 
         for pos, quat in target_poses:
-            model.body_pos[base_body_id] = [-0.2, -0.2, 0.2]
+            model.body_pos[base_body_id] = [0.1, 0.1, 0.2]
             model.body_quat[base_body_id] = euler_to_quaternion(45, 0, 0, degrees=True)
             model.body_pos[tool_body_id] = [0.1, 0.1, 0.25]
             model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
