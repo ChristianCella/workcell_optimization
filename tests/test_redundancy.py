@@ -140,22 +140,23 @@ def main():
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
 
     target_poses = [
-        (np.array([-0.3, -0.4, 0.05]), R.from_euler('xyz', [180, 0, 180], degrees=True).as_quat()),  # arbitrary orientation
+        (np.array([-0.3, -0.4, 0.2]), R.from_euler('xyz', [180, 0, 180], degrees=True).as_quat()),  # arbitrary orientation
     ]
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input("Press Enter to start the pose...")
 
         for pos, quat in target_poses:
-            model.body_pos[base_body_id] = [0.1, 0.1, 0.2]
-            model.body_quat[base_body_id] = euler_to_quaternion(45, 0, 0, degrees=True)
-            model.body_pos[tool_body_id] = [0.1, 0.1, 0.25]
+            model.body_pos[base_body_id] = [0.0, 0.0, 0.0]
+            model.body_quat[base_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
+            model.body_pos[tool_body_id] = [0.0, 0.0, 0.0]
             model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
 
             set_body_pose(model, data, ref_body_id, pos, [quat[3], quat[0], quat[1], quat[2]])
             mujoco.mj_forward(model, data)
 
             # ! 1) Find an intiial guess for the joint configuration
+            ''' 
             q_init = ik_tool_site(model, data, tool_site_id, pos, quat)
             print(f"Initial 6-DoF IK solution: {np.round(q_init, 3)}")
             data.qpos[:6] = q_init
@@ -167,10 +168,26 @@ def main():
                 print(f"Error norm: {np.linalg.norm(data.site_xpos[tool_site_id] - pos):.5f}")
                 print(f"Manipulability: {manipulability(get_full_jacobian(model, data, tool_site_id)):.5f}")
 
-            # Show initial guess for 5 seconds
+            # Show initial guess for some seconds
             print("\nShowing initial guess (6-DoF solution) for 5 seconds...")
             viewer.sync()
             time.sleep(1)
+            '''
+
+            ''' 
+            Fake initialization
+            '''
+            #q_init = np.radians([37.67, -54.17, 86.11, -301.94, 90, 127.67]) #  Case 1
+            q_init = np.radians([180+37.67, -76, 120.57, -134.58, 270, -52.33])
+            data.qpos[:6] = q_init
+            mujoco.mj_forward(model, data)
+            print(f"\n[Init 6-DoF IK] Tool site: {np.round(data.site_xpos[tool_site_id],3)}")
+            print(f"z_dir: {np.round(get_tool_z_direction(data, tool_site_id),3)}")
+            print(f"Error norm: {np.linalg.norm(data.site_xpos[tool_site_id] - pos):.5f}")
+            print(f"Manipulability: {manipulability(get_full_jacobian(model, data, tool_site_id)):.5f}")
+            #print(f"The initial joint configuration is: {np.round(q_init, 3)}")
+            viewer.sync()
+            time.sleep(5)
 
             # ! 2) Resolution of redundancy
             target_pos = data.site_xpos[tool_site_id].copy()
