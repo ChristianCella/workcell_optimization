@@ -26,6 +26,7 @@ def five_dof_error(q, model, data, tool_site_id, target_pos, z_dir_des):
     pos = data.site_xpos[tool_site_id]
     z_dir = get_tool_z_direction(data, tool_site_id)
     pos_err = target_pos - pos
+    # Penalize sign (anti-alignment) via dot product (see below)
     err_axis = np.cross(z_dir, z_dir_des)
     err_proj = err_axis - np.dot(err_axis, z_dir_des) * z_dir_des
     return np.concatenate([pos_err, err_proj[:2]])
@@ -38,11 +39,9 @@ def five_dof_error_with_sign(q, model, data, tool_site_id, target_pos, z_dir_des
     pos_err = target_pos - pos
     err_axis = np.cross(z_dir, z_dir_des)
     err_proj = err_axis - np.dot(err_axis, z_dir_des) * z_dir_des
-
-    # Sign penalty: dot must be >0 (z axes not anti-parallel)
-    sign_penalty = max(0, np.dot(z_dir, z_dir_des))
+    # Penalize anti-alignment
+    sign_penalty = max(0, -np.dot(z_dir, z_dir_des))  # Only positive when dot < 0
     return np.concatenate([pos_err, err_proj[:2], [sign_penalty]])
-
 
 def get_full_jacobian(model, data, tool_site_id):
     nv = model.nv
@@ -62,14 +61,53 @@ def manipulability(q, model, data, tool_site_id):
     return np.sqrt(np.linalg.det(JJt))
 
 # Cost weights (tune as desired)
-W_POSE = 1e3    # Primary goal: pose matching
-W_JOINT_DISP = 1e-1  # Minimal joint displacement
-W_LIMITS = 1e-1 # Stay away from joint limits
-W_ELBOW = 1e-1  # Keep "elbow" joint (joint 4) near a desired value
-W_MANIP = -1.0  # Maximizing manipulability (- sign since cost is minimized)
+W_POSE = 1e3
+W_JOINT_DISP = 1e-1
+W_LIMITS = 1e-1
+W_ELBOW = 1e-1
+W_MANIP = -1.0
+W_COLLISION = 100
+W_ANTIALIGN = 1e6  # Strong penalty for z misalignment
 
-def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, joint_lims, elbow_pref=None):
-    # Pose error (primary goal, quadratic)
+def table_geom_collision_cost(q, model, data, min_z=0.03):
+    """
+    Check all geoms for penetration below z=min_z.
+    Returns penalty: 0 if all are OK, or huge penalty if any are below.
+    """
+    data.qpos[:6] = q
+    mujoco.mj_forward(model, data)
+    penalty = 0.0
+    for g in range(model.ngeom):
+        geom_z = data.geom_xpos[g][2]
+        # Optional: ignore world/floor geoms (skip index 0 or 1, depending on your model)
+        # If geom is attached to world/floor, skip.
+        if model.geom_bodyid[g] == 0:
+            continue
+        if geom_z < min_z:
+            penalty += (min_z - geom_z)**2
+    return penalty
+
+def self_collision_cost(q, model, data):
+    """
+    Returns a large penalty if there are any self-collisions
+    (excluding robot-floor or world collisions).
+    """
+    data.qpos[:6] = q
+    mujoco.mj_forward(model, data)
+    for i in range(data.ncon):
+        c = data.contact[i]
+        # Get the two geom ids involved in the contact
+        g1, g2 = c.geom1, c.geom2
+        # Get the body ids for each geom
+        b1, b2 = model.geom_bodyid[g1], model.geom_bodyid[g2]
+        # Ignore world (body 0 or -1), or ground collision, only care about self-collision
+        if b1 > 0 and b2 > 0 and b1 != b2:
+            # Not the world, not the same body (so not self-contact within the same body)
+            return 1.0  # 1 collision found, could return more info if needed
+    return 0.0
+
+def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, joint_lims, elbow_pref=None, min_z=0.03):
+    # Pose error
     pose_err = five_dof_error(q, model, data, tool_site_id, target_pos, z_dir_des)
     cost_pose = np.sum(pose_err**2)
 
@@ -92,12 +130,29 @@ def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, join
     # Manipulability (maximize)
     manip = manipulability(q, model, data, tool_site_id)
 
+    # Table collision penalty (geom-based)
+    collision_penalty = table_geom_collision_cost(q, model, data, min_z=min_z)  # All geoms above table
+
+    # Self-collision penalty
+    selfcol_penalty = self_collision_cost(q, model, data)
+
+    # Penalize anti-alignment (z_dir·z_dir_des < 0)
+    data.qpos[:6] = q
+    mujoco.mj_forward(model, data)
+    z_dir = get_tool_z_direction(data, tool_site_id)
+    dot_z = np.dot(z_dir, z_dir_des)
+    anti_align_penalty = 0.0
+    if dot_z < 0:
+        anti_align_penalty = -dot_z  # Bigger penalty the more negative
+
     # Weighted sum (BioIK philosophy)
     cost = (W_POSE * cost_pose +
             W_JOINT_DISP * cost_joint_disp +
             W_LIMITS * cost_limits +
             W_ELBOW * cost_elbow +
-            W_MANIP * manip)
+            W_MANIP * manip +
+            W_COLLISION * (collision_penalty + selfcol_penalty) +
+            W_ANTIALIGN * anti_align_penalty)
     return cost
 
 def main():
@@ -118,10 +173,10 @@ def main():
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
 
     target_poses = [
-        (np.array([0.3, 0.4, 0.2]), R.from_euler('xyz', [180, 0, 45], degrees=True).as_quat()),
+        (np.array([-0.3, -0.4, 0.2]), R.from_euler('xyz', [180, 20, 45], degrees=True).as_quat()),
     ]
 
-    joint_lims = model.jnt_range[:6]  # Bounds for 6 joints
+    joint_lims = model.jnt_range[:6]
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input("Press Enter to start the pose...")
@@ -139,12 +194,13 @@ def main():
             z_dir_des = R_target[:, 2].copy()
 
             # Elbow preference range (optional)
-            elbow_pref = (joint_lims[3,0], joint_lims[3,0]+0.4*(joint_lims[3,1]-joint_lims[3,0]))  # Example: prefer low elbow
+            elbow_pref = (joint_lims[3,0], joint_lims[3,0]+0.4*(joint_lims[3,1]-joint_lims[3,0]))
 
-            # Step 1: Global (BioIK-style) search with evolutionary algorithm
             print("\nGlobal (BioIK-style) search (this may take a while)...")
             def cost_wrap(q):
-                return bioik_cost(q, model, data, tool_site_id, pos, z_dir_des, q_seed=np.zeros(6), joint_lims=joint_lims, elbow_pref=elbow_pref)
+                return bioik_cost(q, model, data, tool_site_id, pos, z_dir_des, q_seed=np.zeros(6),
+                                  joint_lims=joint_lims, elbow_pref=elbow_pref, min_z=0.03)
+
             bounds = list(zip(joint_lims[:,0], joint_lims[:,1]))
 
             result = differential_evolution(
@@ -157,10 +213,11 @@ def main():
             )
             q_global = result.x
 
-            # Step 2: Local refinement (BioIK: L-BFGS-B or SLSQP)
             print("Refining globally found configuration with local gradient search...")
             def local_cost(q):
-                return bioik_cost(q, model, data, tool_site_id, pos, z_dir_des, q_seed=q_global, joint_lims=joint_lims, elbow_pref=elbow_pref)
+                return bioik_cost(q, model, data, tool_site_id, pos, z_dir_des, q_seed=q_global,
+                                  joint_lims=joint_lims, elbow_pref=elbow_pref, min_z=0.03)
+
             res = minimize(
                 local_cost,
                 q_global,
