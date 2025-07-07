@@ -64,15 +64,10 @@ There are currently two folders inside [tests](https://github.com/ChristianCella
     - [nl_constrained_redundancy.py](https://github.com/ChristianCella/Screwdriving_MuJoCo/blob/main/tests/Redundancy/nl_constrained_redundancy.py): allows to optimize the robot joint configuration by solving the following non-linear constarined optimization problem $\min_{q} U(q)$ s.t. $f(q)=x$. Unlike the example provided in [test_redundancy.py](https://github.com/ChristianCella/Screwdriving_MuJoCo/blob/main/tests/Redundancy/test_redundancy.py), in this case the library ```scipy.optimize.minimize``` is employed. Despite the formalism and the elegant nature of the problem beneath, achieving the optimal result is time-consuming and usually takes more than the procedure implemented in [test_redundancy.py](https://github.com/ChristianCella/Screwdriving_MuJoCo/blob/main/tests/Redundancy/test_redundancy.py);
     - [test_redundancy.py](https://github.com/ChristianCella/Screwdriving_MuJoCo/blob/main/tests/Redundancy/test_redundancy.py): this code allows to find the joint configuration that optimizes a certain objective function $U(q)$. The selected resolutin technique is the $\textit{Null-space Gradient}$ method, where the optimal configuration $q^*$ is iteratively found according to $q_{k+1} \gets q_k - \alpha N (\frac{\partial U(q)}{\partial q})^T$. In the test, the functional $U(q) = \sqrt{\det{(J^T J)}}$ and the solution is projected back on the feasible manifold at the very end, to enforce the constraint $x = f(q)$ (basically, the code solves $q_{final} = \argmin_q ||q - q_{opt}||^2$ s.t. $x^*=f(q)$):.
 
-
-## Yet to be done
-
-Understand how to introduce motion planning and trajectory tracking. Usually, industrial robots are featured with a controller that automatically compensates gravity, but in this case we have to account for it and also for an external wrench. If this is true, motion planning would not be particularly difficult.
-
 ---
 
 ### **Contacts** <a name="Contacts"></a> 📧
 <img align="center" height="40" src="https://avatars.githubusercontent.com/u/113984059?v=4"> Christian Cella: christian.cella@polimi.it
 
-<img align="center" height="40" src="https://avatars.githubusercontent.com/u/83009256?v=4"> Alessandro Casciani: alessandro.casciani@mail.polimi.it
+<img align="center" height="40" src="https://avatars.githubusercontent.com/u/127955558?v=4"> Alessandro Casciani: alessandro.casciani@mail.polimi.it
 
