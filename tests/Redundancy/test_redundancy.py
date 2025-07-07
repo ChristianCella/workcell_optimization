@@ -126,7 +126,7 @@ def main():
     verbose = True
     show_pose_duration = 5.0
 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     sys.path.append(base_dir)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e", "scene.xml")
 
@@ -140,7 +140,7 @@ def main():
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
 
     target_poses = [
-        (np.array([-0.3, -0.4, 0.2]), R.from_euler('xyz', [180, 0, 180], degrees=True).as_quat()),  # arbitrary orientation
+        (np.array([-0.3, -0.4, 0.2]), R.from_euler('xyz', [180, 20, 45], degrees=True).as_quat()),  # arbitrary orientation
     ]
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
@@ -156,7 +156,6 @@ def main():
             mujoco.mj_forward(model, data)
 
             # ! 1) Find an intiial guess for the joint configuration
-            ''' 
             q_init = ik_tool_site(model, data, tool_site_id, pos, quat)
             print(f"Initial 6-DoF IK solution: {np.round(q_init, 3)}")
             data.qpos[:6] = q_init
@@ -172,22 +171,6 @@ def main():
             print("\nShowing initial guess (6-DoF solution) for 5 seconds...")
             viewer.sync()
             time.sleep(1)
-            '''
-
-            ''' 
-            Fake initialization
-            '''
-            #q_init = np.radians([37.67, -54.17, 86.11, -301.94, 90, 127.67]) #  Case 1
-            q_init = np.radians([180+37.67, -76, 120.57, -134.58, 270, -52.33])
-            data.qpos[:6] = q_init
-            mujoco.mj_forward(model, data)
-            print(f"\n[Init 6-DoF IK] Tool site: {np.round(data.site_xpos[tool_site_id],3)}")
-            print(f"z_dir: {np.round(get_tool_z_direction(data, tool_site_id),3)}")
-            print(f"Error norm: {np.linalg.norm(data.site_xpos[tool_site_id] - pos):.5f}")
-            print(f"Manipulability: {manipulability(get_full_jacobian(model, data, tool_site_id)):.5f}")
-            #print(f"The initial joint configuration is: {np.round(q_init, 3)}")
-            viewer.sync()
-            time.sleep(5)
 
             # ! 2) Resolution of redundancy
             target_pos = data.site_xpos[tool_site_id].copy()

@@ -55,7 +55,7 @@ def main():
     verbose = True
     show_pose_duration = 5.0
 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     sys.path.append(base_dir)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e", "scene.xml")
 
@@ -70,16 +70,16 @@ def main():
 
     # Target pose: arbitrary orientation, only z-axis alignment matters!
     target_poses = [
-        (np.array([-0.3, -0.4, 0.05]), R.from_euler('xyz', [180, 0, 180], degrees=True).as_quat()),
+        (np.array([-0.3, -0.4, 0.2]), R.from_euler('xyz', [180, 20, 45], degrees=True).as_quat()),
     ]
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input("Press Enter to start the pose...")
 
         for pos, quat in target_poses:
-            model.body_pos[base_body_id] = [0.1, 0.1, 0.2]
-            model.body_quat[base_body_id] = euler_to_quaternion(45, 0, 0, degrees=True)
-            model.body_pos[tool_body_id] = [0.1, 0.1, 0.25]
+            model.body_pos[base_body_id] = [0.0, 0.0, 0.0]
+            model.body_quat[base_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
+            model.body_pos[tool_body_id] = [0.0, 0.0, 0.0]
             model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
 
             set_body_pose(model, data, ref_body_id, pos, [quat[3], quat[0], quat[1], quat[2]])

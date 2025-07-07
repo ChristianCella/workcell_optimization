@@ -26,7 +26,6 @@ def five_dof_error(q, model, data, tool_site_id, target_pos, z_dir_des):
     pos = data.site_xpos[tool_site_id]
     z_dir = get_tool_z_direction(data, tool_site_id)
     pos_err = target_pos - pos
-    # Penalize sign (anti-alignment) via dot product (see below)
     err_axis = np.cross(z_dir, z_dir_des)
     err_proj = err_axis - np.dot(err_axis, z_dir_des) * z_dir_des
     return np.concatenate([pos_err, err_proj[:2]])
@@ -39,7 +38,6 @@ def five_dof_error_with_sign(q, model, data, tool_site_id, target_pos, z_dir_des
     pos_err = target_pos - pos
     err_axis = np.cross(z_dir, z_dir_des)
     err_proj = err_axis - np.dot(err_axis, z_dir_des) * z_dir_des
-    # Penalize anti-alignment
     sign_penalty = max(0, -np.dot(z_dir, z_dir_des))  # Only positive when dot < 0
     return np.concatenate([pos_err, err_proj[:2], [sign_penalty]])
 
@@ -57,101 +55,72 @@ def manipulability(q, model, data, tool_site_id):
     J = get_full_jacobian(model, data, tool_site_id)
     JJt = J @ J.T
     if np.linalg.matrix_rank(JJt) < 6 or np.linalg.det(JJt) < 1e-12:
-        return 0.0
-    return np.sqrt(np.linalg.det(JJt))
+        return 1e6  # Return large value if near singularity (for inverse manipulability)
+    return 1/(np.sqrt(np.linalg.det(JJt)))
 
-# Cost weights (tune as desired)
-W_POSE = 1e3
-W_JOINT_DISP = 1e-1
-W_LIMITS = 1e-1
-W_ELBOW = 1e-1
-W_MANIP = -1.0
-W_COLLISION = 100
-W_ANTIALIGN = 1e6  # Strong penalty for z misalignment
-
-def table_geom_collision_cost(q, model, data, min_z=0.03):
+def geom_collision_penalty(q, model, data, robot_geom_ids, floor_geom_id=None, collision_weight=1e5):
     """
-    Check all geoms for penetration below z=min_z.
-    Returns penalty: 0 if all are OK, or huge penalty if any are below.
+    Penalizes self-collisions and collisions with the floor using MuJoCo's geom contacts.
     """
     data.qpos[:6] = q
     mujoco.mj_forward(model, data)
+    mujoco.mj_collision(model, data)
     penalty = 0.0
-    for g in range(model.ngeom):
-        geom_z = data.geom_xpos[g][2]
-        # Optional: ignore world/floor geoms (skip index 0 or 1, depending on your model)
-        # If geom is attached to world/floor, skip.
-        if model.geom_bodyid[g] == 0:
-            continue
-        if geom_z < min_z:
-            penalty += (min_z - geom_z)**2
-    return penalty
 
-def self_collision_cost(q, model, data):
-    """
-    Returns a large penalty if there are any self-collisions
-    (excluding robot-floor or world collisions).
-    """
-    data.qpos[:6] = q
-    mujoco.mj_forward(model, data)
     for i in range(data.ncon):
         c = data.contact[i]
-        # Get the two geom ids involved in the contact
         g1, g2 = c.geom1, c.geom2
-        # Get the body ids for each geom
-        b1, b2 = model.geom_bodyid[g1], model.geom_bodyid[g2]
-        # Ignore world (body 0 or -1), or ground collision, only care about self-collision
-        if b1 > 0 and b2 > 0 and b1 != b2:
-            # Not the world, not the same body (so not self-contact within the same body)
-            return 1.0  # 1 collision found, could return more info if needed
-    return 0.0
 
-def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, joint_lims, elbow_pref=None, min_z=0.03):
-    # Pose error
+        robot_vs_robot = (g1 in robot_geom_ids and g2 in robot_geom_ids and g1 != g2)
+        robot_vs_floor = (floor_geom_id is not None) and (
+            (g1 in robot_geom_ids and g2 == floor_geom_id) or (g2 in robot_geom_ids and g1 == floor_geom_id)
+        )
+
+        if robot_vs_robot or robot_vs_floor:
+            penetration = max(0, -c.dist)
+            penalty += 1.0 + 1000.0 * penetration  # Strong penalty for penetration
+
+    return collision_weight * penalty
+
+# Cost weights
+W_POSE = 1e8
+W_JOINT_DISP = 0
+W_LIMITS = 0 # 1e2
+W_ELBOW = 0
+W_MANIP = 1e4 # 1e-4
+W_ANTIALIGN = 1e8
+
+def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, joint_lims, elbow_pref=None,
+               robot_geom_ids=None, floor_geom_id=None, collision_weight=1e5):
     pose_err = five_dof_error(q, model, data, tool_site_id, target_pos, z_dir_des)
     cost_pose = np.sum(pose_err**2)
-
-    # Joint displacement (from seed)
     cost_joint_disp = np.sum((q - q_seed)**2)
-
-    # Joint limits (penalize being near limits)
     lower, upper = joint_lims[:,0], joint_lims[:,1]
     mid = 0.5 * (lower + upper)
     range_ = upper - lower
     cost_limits = np.sum(((2 * np.abs(q - mid) - 0.5 * range_)**2))
-
-    # Elbow cost (for UR robots, joint 4 is "elbow")
     if elbow_pref is not None:
         el, eh = elbow_pref
         cost_elbow = (2 * np.abs(q[3] - 0.5*(eh + el)) - 0.5*(eh - el))**2
     else:
         cost_elbow = 0.0
-
-    # Manipulability (maximize)
     manip = manipulability(q, model, data, tool_site_id)
-
-    # Table collision penalty (geom-based)
-    collision_penalty = table_geom_collision_cost(q, model, data, min_z=min_z)  # All geoms above table
-
-    # Self-collision penalty
-    selfcol_penalty = self_collision_cost(q, model, data)
-
-    # Penalize anti-alignment (z_dir·z_dir_des < 0)
+    collision_penalty = 0.0
+    if robot_geom_ids is not None:
+        collision_penalty = geom_collision_penalty(q, model, data, robot_geom_ids, floor_geom_id, collision_weight=collision_weight)
     data.qpos[:6] = q
     mujoco.mj_forward(model, data)
     z_dir = get_tool_z_direction(data, tool_site_id)
     dot_z = np.dot(z_dir, z_dir_des)
     anti_align_penalty = 0.0
     if dot_z < 0:
-        anti_align_penalty = -dot_z  # Bigger penalty the more negative
-
-    # Weighted sum (BioIK philosophy)
+        anti_align_penalty = -dot_z
     cost = (W_POSE * cost_pose +
             W_JOINT_DISP * cost_joint_disp +
             W_LIMITS * cost_limits +
             W_ELBOW * cost_elbow +
             W_MANIP * manip +
-            W_COLLISION * (collision_penalty + selfcol_penalty) +
+            collision_penalty +
             W_ANTIALIGN * anti_align_penalty)
     return cost
 
@@ -159,7 +128,7 @@ def main():
     verbose = True
     show_pose_duration = 5.0
 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     sys.path.append(base_dir)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e", "scene.xml")
 
@@ -171,6 +140,38 @@ def main():
     ref_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "reference_target")
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
+
+    # --- Get robot geoms robustly ---
+    excluded_prefixes = (
+        "floor", "world_", "reference_", "force_arrow", "moment_arrow"
+    )
+    robot_geom_ids = []
+    for i in range(model.ngeom):
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i)
+        body_id = model.geom_bodyid[i]
+        # If named and excluded, skip.
+        if name is not None:
+            if any(name.startswith(prefix) for prefix in excluded_prefixes):
+                continue
+        # Skip world/static
+        if body_id <= 0:
+            continue
+        # Now: robot collision geom = either unnamed (None) OR has 'collision' or 'eef_collision' in name
+        is_collision = False
+        if name is None:
+            is_collision = True
+        elif "collision" in name or "eef_collision" in name:
+            is_collision = True
+        if is_collision:
+            robot_geom_ids.append(i)
+
+    floor_geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+    print("Robot geom ids:", robot_geom_ids)
+    print("Floor geom id:", floor_geom_id)
+
+    print("\nGeoms list:")
+    for i in range(model.ngeom):
+        print(i, mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i))
 
     target_poses = [
         (np.array([-0.3, -0.4, 0.2]), R.from_euler('xyz', [180, 20, 45], degrees=True).as_quat()),
@@ -192,42 +193,48 @@ def main():
 
             R_target = R.from_quat(quat).as_matrix()
             z_dir_des = R_target[:, 2].copy()
-
-            # Elbow preference range (optional)
             elbow_pref = (joint_lims[3,0], joint_lims[3,0]+0.4*(joint_lims[3,1]-joint_lims[3,0]))
 
             print("\nGlobal (BioIK-style) search (this may take a while)...")
             def cost_wrap(q):
                 return bioik_cost(q, model, data, tool_site_id, pos, z_dir_des, q_seed=np.zeros(6),
-                                  joint_lims=joint_lims, elbow_pref=elbow_pref, min_z=0.03)
+                                  joint_lims=joint_lims, elbow_pref=elbow_pref,
+                                  robot_geom_ids=robot_geom_ids, floor_geom_id=floor_geom_id, collision_weight=1e5)
 
             bounds = list(zip(joint_lims[:,0], joint_lims[:,1]))
 
+            # ! Global minimization
             result = differential_evolution(
                 cost_wrap,
                 bounds,
-                popsize=20,
-                maxiter=80,
+                popsize=60,
+                maxiter=1000,
                 polish=True,
                 updating='deferred'
             )
             q_global = result.x
 
+            # Show the gobal solution for 3 seconds
+            data.qpos[:6] = q_global
+            mujoco.mj_forward(model, data)
+            viewer.sync()
+            time.sleep(show_pose_duration)
+
             print("Refining globally found configuration with local gradient search...")
             def local_cost(q):
                 return bioik_cost(q, model, data, tool_site_id, pos, z_dir_des, q_seed=q_global,
-                                  joint_lims=joint_lims, elbow_pref=elbow_pref, min_z=0.03)
-
+                                  joint_lims=joint_lims, elbow_pref=elbow_pref,
+                                  robot_geom_ids=robot_geom_ids, floor_geom_id=floor_geom_id, collision_weight=1e5)
+            # ! local minimization
             res = minimize(
                 local_cost,
                 q_global,
                 method='L-BFGS-B',
                 bounds=bounds,
-                options={'ftol': 1e-8, 'maxiter': 200}
+                options={'ftol': 1e-8, 'maxiter': 300}
             )
             q_opt = res.x
 
-            # Apply and show solution
             data.qpos[:6] = q_opt
             mujoco.mj_forward(model, data)
             print("\nFinal configuration:", np.round(q_opt, 3))

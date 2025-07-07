@@ -29,7 +29,7 @@ def euler_to_quaternion(roll, pitch, yaw, degrees=False):
 def main():
 
     # Path setup
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     sys.path.append(base_dir)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e/scene.xml")
 
