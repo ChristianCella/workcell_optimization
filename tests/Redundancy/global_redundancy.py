@@ -56,7 +56,7 @@ def manipulability(q, model, data, tool_site_id):
     JJt = J @ J.T
     if np.linalg.matrix_rank(JJt) < 6 or np.linalg.det(JJt) < 1e-12:
         return 1e6  # Return large value if near singularity (for inverse manipulability)
-    return 1/(np.sqrt(np.linalg.det(JJt)))
+    return -(np.sqrt(np.linalg.det(JJt)))
 
 def geom_collision_penalty(q, model, data, robot_geom_ids, floor_geom_id=None, collision_weight=1e5):
     """
@@ -83,12 +83,12 @@ def geom_collision_penalty(q, model, data, robot_geom_ids, floor_geom_id=None, c
     return collision_weight * penalty
 
 # Cost weights
-W_POSE = 1e8
+W_POSE = 1e5
 W_JOINT_DISP = 0
 W_LIMITS = 0 # 1e2
 W_ELBOW = 0
-W_MANIP = 1e4 # 1e-4
-W_ANTIALIGN = 1e8
+W_MANIP = 1e4 # 1e4
+W_ANTIALIGN = 1e3
 
 def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, joint_lims, elbow_pref=None,
                robot_geom_ids=None, floor_geom_id=None, collision_weight=1e5):
@@ -122,6 +122,9 @@ def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, join
             W_MANIP * manip +
             collision_penalty +
             W_ANTIALIGN * anti_align_penalty)
+    #print(f"The partial cost due to pose error is {cost_pose:.3f}, ")
+    #print(f"The partial cost due to manipulability is {manip:.3f}, ")
+    #print(f"the partial cost due to axis alignment is {anti_align_penalty:.3f}, ")
     return cost
 
 def main():
@@ -174,7 +177,7 @@ def main():
         print(i, mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i))
 
     target_poses = [
-        (np.array([-0.3, -0.4, 0.2]), R.from_euler('xyz', [180, 20, 45], degrees=True).as_quat()),
+        (np.array([0.2, 0.2, 0.1]), R.from_euler('xyz', [180, 37, 0], degrees=True).as_quat()),
     ]
 
     joint_lims = model.jnt_range[:6]
@@ -183,9 +186,9 @@ def main():
         input("Press Enter to start the pose...")
 
         for pos, quat in target_poses:
-            model.body_pos[base_body_id] = [0.0, 0.0, 0.0]
-            model.body_quat[base_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
-            model.body_pos[tool_body_id] = [0.0, 0.0, 0.0]
+            model.body_pos[base_body_id] = [-0.1, -0.1, 0.2]
+            model.body_quat[base_body_id] = euler_to_quaternion(45, 0, 0, degrees=True)
+            model.body_pos[tool_body_id] = [0.1, 0.1, 0.25]
             model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
 
             set_body_pose(model, data, ref_body_id, pos, [quat[3], quat[0], quat[1], quat[2]])
@@ -204,12 +207,15 @@ def main():
             bounds = list(zip(joint_lims[:,0], joint_lims[:,1]))
 
             # ! Global minimization
+            # Function evaluations = pop_size * maxiter
             result = differential_evolution(
                 cost_wrap,
                 bounds,
-                popsize=60,
-                maxiter=1000,
+                popsize=20,
+                maxiter=100, # Can finish earlier if convergence is reached
                 polish=True,
+                #disp=True,
+                # mutation=(1.0, 1.9),  # Mutation factor (do not specify to save time)
                 updating='deferred'
             )
             q_global = result.x
@@ -231,7 +237,7 @@ def main():
                 q_global,
                 method='L-BFGS-B',
                 bounds=bounds,
-                options={'ftol': 1e-8, 'maxiter': 300}
+                options={'ftol': 1e-4, 'maxiter': 100}
             )
             q_opt = res.x
 
@@ -241,7 +247,7 @@ def main():
             print("Tool site:", np.round(data.site_xpos[tool_site_id],3))
             print("z_dir:", np.round(get_tool_z_direction(data, tool_site_id),3))
             print("Pose cost (should be ~0):", np.sum(five_dof_error_with_sign(q_opt, model, data, tool_site_id, pos, z_dir_des)**2))
-            print("Manipulability:", manipulability(q_opt, model, data, tool_site_id))
+            print("Inverse manipulability:", np.abs(1/manipulability(q_opt, model, data, tool_site_id)))
 
             viewer.sync()
             time.sleep(show_pose_duration)
