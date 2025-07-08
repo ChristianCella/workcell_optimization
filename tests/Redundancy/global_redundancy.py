@@ -84,7 +84,7 @@ def geom_collision_penalty(q, model, data, robot_geom_ids, floor_geom_id=None, c
     return collision_weight * penalty
 
 # Cost weights
-W_POSE = 1e8
+W_POSE = 1e12
 W_JOINT_DISP = 0
 W_LIMITS = 0 # 1e2
 W_ELBOW = 0
@@ -255,7 +255,7 @@ def main():
         print(i, mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i))
 
     target_poses = [
-        (np.array([0.2, 0.2, 0.1]), R.from_euler('xyz', [180, 37, 0], degrees=True).as_quat()),
+        (np.array([0.2, -0.2, 0.2]), R.from_euler('xyz', [180, 0, 0], degrees=True).as_quat()),
     ]
 
     joint_lims = model.jnt_range[:6]
@@ -266,7 +266,7 @@ def main():
 
         for pos, quat in target_poses:
             model.body_pos[base_body_id] = [-0.1, -0.1, 0.2]
-            model.body_quat[base_body_id] = euler_to_quaternion(45, 0, 0, degrees=True)
+            model.body_quat[base_body_id] = euler_to_quaternion(45, 45, 0, degrees=True)
             model.body_pos[tool_body_id] = [0.1, 0.1, 0.25]
             model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
 
@@ -277,11 +277,15 @@ def main():
             z_dir_des = R_target[:, 2].copy()
             elbow_pref = (joint_lims[3,0], joint_lims[3,0]+0.4*(joint_lims[3,1]-joint_lims[3,0]))
 
+            # Try to start from a sensical seed
+            q_seed = np.radians([-8.38, -68.05, -138, -64, 90, -7.85]) # ! Try to change this!
+            #q_seed = np.zeros(6)
+
             print("\nGPU-accelerated global search (this should be faster)...")
             start_time = time.time()
             
             def cost_wrap(q):
-                return bioik_cost(q, model, data, tool_site_id, pos, z_dir_des, q_seed=np.zeros(6),
+                return bioik_cost(q, model, data, tool_site_id, pos, z_dir_des, q_seed=q_seed,
                                   joint_lims=joint_lims, elbow_pref=elbow_pref,
                                   robot_geom_ids=robot_geom_ids, floor_geom_id=floor_geom_id, collision_weight=1e5)
 
@@ -291,7 +295,7 @@ def main():
             result = differential_evolution(
                 cost_wrap,
                 bounds,
-                popsize=30,        # Increased population for GPU parallelization
+                popsize=10,        # This is the parameter that increases time complexity the most
                 maxiter=500,       # Increased iterations for better solutions
                 polish=True,
                 workers=1,         # Use single worker since we handle parallelization internally
@@ -309,6 +313,7 @@ def main():
             viewer.sync()
             time.sleep(show_pose_duration)
 
+            '''
             print("Refining with GPU-accelerated local search...")
             start_time = time.time()
             
@@ -332,12 +337,13 @@ def main():
 
             data.qpos[:6] = q_opt
             mujoco.mj_forward(model, data)
-            print("\nFinal configuration:", np.round(q_opt, 3))
+            '''
+            print("\nFinal configuration:", np.round(q_global, 3))
             print("Tool site:", np.round(data.site_xpos[tool_site_id],3))
             print("z_dir:", np.round(get_tool_z_direction(data, tool_site_id),3))
-            print("Pose cost (should be ~0):", np.sum(five_dof_error_with_sign(q_opt, model, data, tool_site_id, pos, z_dir_des)**2))
-            print("Inverse manipulability:", np.abs(1/manipulability(q_opt, model, data, tool_site_id)))
-            print(f"Total optimization time: {global_time + local_time:.2f} seconds")
+            print("Pose cost (should be ~0):", np.sum(five_dof_error_with_sign(q_global, model, data, tool_site_id, pos, z_dir_des)**2))
+            print("Inverse manipulability:", np.abs(1/manipulability(q_global, model, data, tool_site_id)))
+            print(f"Total optimization time: {global_time:.2f} seconds")
 
             viewer.sync()
             time.sleep(show_pose_duration)
