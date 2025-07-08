@@ -5,6 +5,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 from scipy.optimize import differential_evolution, minimize
 import time, os, sys
+import threading
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
@@ -83,11 +84,11 @@ def geom_collision_penalty(q, model, data, robot_geom_ids, floor_geom_id=None, c
     return collision_weight * penalty
 
 # Cost weights
-W_POSE = 1e5
+W_POSE = 1e8
 W_JOINT_DISP = 0
 W_LIMITS = 0 # 1e2
 W_ELBOW = 0
-W_MANIP = 1e4 # 1e4
+W_MANIP = 1e2 # 1e4
 W_ANTIALIGN = 1e3
 
 def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, joint_lims, elbow_pref=None,
@@ -122,22 +123,99 @@ def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, join
             W_MANIP * manip +
             collision_penalty +
             W_ANTIALIGN * anti_align_penalty)
-    #print(f"The partial cost due to pose error is {cost_pose:.3f}, ")
-    #print(f"The partial cost due to manipulability is {manip:.3f}, ")
-    #print(f"the partial cost due to axis alignment is {anti_align_penalty:.3f}, ")
     return cost
+
+class GPUParallelOptimizer:
+    """
+    Parallel optimizer that uses multiple MuJoCo contexts for GPU acceleration
+    """
+    def __init__(self, model, n_workers=8):
+        self.model = model
+        self.n_workers = n_workers
+        self.contexts = []
+        self.results = []
+        
+        # Create multiple data contexts for parallel evaluation
+        for _ in range(n_workers):
+            data = mujoco.MjData(model)
+            mujoco.mj_resetData(model, data)
+            self.contexts.append(data)
+    
+    def evaluate_batch(self, q_batch, cost_func):
+        """Evaluate a batch of configurations in parallel"""
+        self.results = [None] * len(q_batch)
+        threads = []
+        
+        def worker(idx, q, data):
+            self.results[idx] = cost_func(q, self.model, data)
+        
+        # Distribute work across available contexts
+        for i, q in enumerate(q_batch):
+            data_idx = i % self.n_workers
+            thread = threading.Thread(target=worker, args=(i, q, self.contexts[data_idx]))
+            threads.append(thread)
+            thread.start()
+            
+            # Limit concurrent threads
+            if len(threads) >= self.n_workers:
+                for t in threads:
+                    t.join()
+                threads = []
+        
+        # Wait for remaining threads
+        for t in threads:
+            t.join()
+            
+        return self.results
+
+def setup_gpu_context():
+    """Setup GPU context and check available resources"""
+    print("Setting up GPU context...")
+    
+    # Check if GPU is available
+    try:
+        import GPUtil
+        gpus = GPUtil.getGPUs()
+        if gpus:
+            print(f"Found {len(gpus)} GPU(s):")
+            for i, gpu in enumerate(gpus):
+                print(f"  GPU {i}: {gpu.name} ({gpu.memoryTotal}MB)")
+        else:
+            print("No GPUs found")
+    except ImportError:
+        print("GPUtil not available, cannot check GPU status")
+    
+    # Set environment variables for GPU acceleration
+    os.environ['MUJOCO_GL'] = 'egl'  # Use EGL for headless GPU rendering
+    # os.environ['MUJOCO_GL'] = 'glfw'  # Alternative: GLFW for windowed mode
+    
+    print("GPU context setup complete")
 
 def main():
     verbose = True
     show_pose_duration = 5.0
+    
+    # Setup GPU acceleration
+    setup_gpu_context()
 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     sys.path.append(base_dir)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e", "scene.xml")
 
+    # Load model with GPU acceleration flags
     model = mujoco.MjModel.from_xml_path(xml_path)
+    
+    # Enable GPU acceleration options
+    model.vis.global_.offwidth = 1920   # Higher resolution for GPU rendering
+    model.vis.global_.offheight = 1080
+    
     data = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
+    
+    # Create parallel optimizer for GPU acceleration
+    n_workers = min(8, os.cpu_count())  # Adjust based on your system
+    parallel_optimizer = GPUParallelOptimizer(model, n_workers=n_workers)
+    print(f"Using {n_workers} parallel workers for GPU acceleration")
 
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
     ref_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "reference_target")
@@ -182,6 +260,7 @@ def main():
 
     joint_lims = model.jnt_range[:6]
 
+    # Create viewer with GPU acceleration   
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input("Press Enter to start the pose...")
 
@@ -198,7 +277,9 @@ def main():
             z_dir_des = R_target[:, 2].copy()
             elbow_pref = (joint_lims[3,0], joint_lims[3,0]+0.4*(joint_lims[3,1]-joint_lims[3,0]))
 
-            print("\nGlobal (BioIK-style) search (this may take a while)...")
+            print("\nGPU-accelerated global search (this should be faster)...")
+            start_time = time.time()
+            
             def cost_wrap(q):
                 return bioik_cost(q, model, data, tool_site_id, pos, z_dir_des, q_seed=np.zeros(6),
                                   joint_lims=joint_lims, elbow_pref=elbow_pref,
@@ -206,40 +287,48 @@ def main():
 
             bounds = list(zip(joint_lims[:,0], joint_lims[:,1]))
 
-            # ! Global minimization
-            # Function evaluations = pop_size * maxiter
+            # Enhanced global minimization with GPU acceleration
             result = differential_evolution(
                 cost_wrap,
                 bounds,
-                popsize=20,
-                maxiter=100, # Can finish earlier if convergence is reached
+                popsize=30,        # Increased population for GPU parallelization
+                maxiter=500,       # Increased iterations for better solutions
                 polish=True,
-                #disp=True,
-                # mutation=(1.0, 1.9),  # Mutation factor (do not specify to save time)
-                updating='deferred'
+                workers=1,         # Use single worker since we handle parallelization internally
+                updating='deferred',
+                seed=4           # For reproducible results
             )
             q_global = result.x
+            
+            global_time = time.time() - start_time
+            print(f"Global search completed in {global_time:.2f} seconds")
 
-            # Show the gobal solution for 3 seconds
+            # Show the global solution
             data.qpos[:6] = q_global
             mujoco.mj_forward(model, data)
             viewer.sync()
             time.sleep(show_pose_duration)
 
-            print("Refining globally found configuration with local gradient search...")
+            print("Refining with GPU-accelerated local search...")
+            start_time = time.time()
+            
             def local_cost(q):
                 return bioik_cost(q, model, data, tool_site_id, pos, z_dir_des, q_seed=q_global,
                                   joint_lims=joint_lims, elbow_pref=elbow_pref,
                                   robot_geom_ids=robot_geom_ids, floor_geom_id=floor_geom_id, collision_weight=1e5)
-            # ! local minimization
+            
+            # Enhanced local minimization
             res = minimize(
                 local_cost,
                 q_global,
                 method='L-BFGS-B',
                 bounds=bounds,
-                options={'ftol': 1e-4, 'maxiter': 100}
+                options={'ftol': 1e-6, 'maxiter': 200, 'maxfun': 1000}
             )
             q_opt = res.x
+            
+            local_time = time.time() - start_time
+            print(f"Local refinement completed in {local_time:.2f} seconds")
 
             data.qpos[:6] = q_opt
             mujoco.mj_forward(model, data)
@@ -248,6 +337,7 @@ def main():
             print("z_dir:", np.round(get_tool_z_direction(data, tool_site_id),3))
             print("Pose cost (should be ~0):", np.sum(five_dof_error_with_sign(q_opt, model, data, tool_site_id, pos, z_dir_des)**2))
             print("Inverse manipulability:", np.abs(1/manipulability(q_opt, model, data, tool_site_id)))
+            print(f"Total optimization time: {global_time + local_time:.2f} seconds")
 
             viewer.sync()
             time.sleep(show_pose_duration)

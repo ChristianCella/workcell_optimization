@@ -68,6 +68,9 @@ def manipulability(J):
     return np.sqrt(np.linalg.det(J @ J.T))
 
 def grad_manipulability(q, model, data, tool_site_id, eps=1e-6):
+    ''' 
+    This function uses symmetric difference quotient to compute the gradient of manipulability.
+    '''
     w0 = manipulability(get_full_jacobian(model, data, tool_site_id))
     grad = np.zeros_like(q)
     for i in range(len(q)):
