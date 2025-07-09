@@ -69,7 +69,7 @@ There are currently two folders inside [tests](https://github.com/ChristianCella
 ---
 
 ### **bayesian optimizers** 📈 <a name="Bayesian"></a> 
-This fold[r contains the entry-level files for Bayesian Optimization.
+This folder contains the entry-level files for Bayesian Optimization.
 - [docs](https://github.com/ChristianCella/Screwdriving_MuJoCo/tree/main/bayesian_optimizers/docs): contains a pdf for some theory and a very simple code to understand the basics;
 - [custom](https://github.com/ChristianCella/Screwdriving_MuJoCo/tree/main/bayesian_optimizers/custom): some hand-made codes for more structured examples;
 - [botorch_based](https://github.com/ChristianCella/Screwdriving_MuJoCo/tree/main/bayesian_optimizers/botorch_based): these are some of the most advanced codes; more specifically, the implementations of TuRBO and SCBO, that you cna find at [this](https://botorch.org/) link on BoTorch. On this site there is also a lot of useful staff: take a look at it.
