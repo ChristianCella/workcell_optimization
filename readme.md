@@ -11,7 +11,7 @@ The work is meant to be python-based, without the necessity to be enclosed in a 
 
 ---
 
-### **Installation procedure** <a name="Install"></a> ▶️
+### **Installation procedure** ▶️ <a name="Install"></a> 
 
 Install the repository:
 
@@ -40,12 +40,14 @@ Before proceeding, always make sure that you really checked out on that branch w
 
 ---
 
-### **Project structure** <a name="Structure"></a> 🏗️
+### **Project structure** 🏗️ <a name="Structure"></a> 
 At the moment, the structure is the following:
 
 ```
+├── bayesian_optimizers/         # codes for Bayesian Optimization
 ├── tests/                       # test codes
 ├── universal_robots_ur5e/       # xml code to setup the MuJoCo scene
+├── utils/                       # some utilities codes
 ├── .gitignore                             
 ├── readme.md
 └── requirements.txt   
@@ -53,7 +55,7 @@ At the moment, the structure is the following:
 
 ---
 
-### **Tests** <a name="Tests"></a> 🔎
+### **Tests** 🔎 <a name="Tests"></a> 
 There are currently two folders inside [tests](https://github.com/ChristianCella/Screwdriving_MuJoCo/tree/main/tests):
 - [Physics](https://github.com/ChristianCella/Screwdriving_MuJoCo/tree/main/tests/Physics): contains all the python files to solve the statics/dynamics of the robot.
     - [impose_q.py](https://github.com/ChristianCella/Screwdriving_MuJoCo/blob/main/tests/Physics/impose_q.py): this code allows to retrieve one of the joint configurations of the robot, based on a target Cartesian pose. This code is NOT meant for simulations involving physics: the robot is instantaneosuly configured according to the solution of the inverse kinematics, but no control is applied at the joints;
@@ -66,7 +68,15 @@ There are currently two folders inside [tests](https://github.com/ChristianCella
 
 ---
 
-### **Contacts** <a name="Contacts"></a> 📧
+### **bayesian optimizers** 📈 <a name="Bayesian"></a> 
+This fold[r contains the entry-level files for Bayesian Optimization.
+- [docs](https://github.com/ChristianCella/Screwdriving_MuJoCo/tree/main/bayesian_optimizers/docs): contains a pdf for some theory and a very simple code to understand the basics;
+- [custom](https://github.com/ChristianCella/Screwdriving_MuJoCo/tree/main/bayesian_optimizers/custom): some hand-made codes for more structured examples;
+- [botorch_based](https://github.com/ChristianCella/Screwdriving_MuJoCo/tree/main/bayesian_optimizers/botorch_based): these are some of the most advanced codes; more specifically, the implementations of TuRBO and SCBO, that you cna find at [this](https://botorch.org/) link on BoTorch. On this site there is also a lot of useful staff: take a look at it.
+
+---
+
+### **Contacts** 📧 <a name="Contacts"></a> 
 <img align="center" height="40" src="https://avatars.githubusercontent.com/u/113984059?v=4"> Christian Cella: christian.cella@polimi.it
 
 <img align="center" height="40" src="https://avatars.githubusercontent.com/u/127955558?v=4"> Alessandro Casciani: alessandro.casciani@mail.polimi.it
