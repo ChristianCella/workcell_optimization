@@ -96,8 +96,8 @@ def main():
             for idx, desired_qpos in enumerate(target_qpos_list):
 
                 # Set the robot base to a new pose
-                model.body_pos[base_body_id] = [idx * 0.3, idx * 0.1, 0.5]
-                model.body_quat[base_body_id] = euler_to_quaternion(45, 45, 0, degrees=True)
+                model.body_pos[base_body_id] = [idx * 0.3, idx * 0.1, idx * 0.05 + 0.15]
+                model.body_quat[base_body_id] = euler_to_quaternion(10 * idx, 45, 0, degrees=True)
 
                 # Set the tool to a new pose with respect to the ee (flange)
                 model.body_pos[tool_body_id] = [0.1, 0.1, 0.1]

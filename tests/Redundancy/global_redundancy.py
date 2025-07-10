@@ -8,7 +8,7 @@ import time, os, sys
 import threading
 
 '''
-This coed allows to perform a global optimization of the redundancy problem in a 6-DOF robot arm.
+This code allows to perform a global optimization of the redundancy problem in a 6-DOF robot arm.
 The method is based on the differential evolution algorithm, which is a global optimization algorithm (inspired by bioik).
 The optimization is performed in two steps:
 1. A global optimization is performed using the differential evolution algorithm, which is a population-based algorithm that explores the search space.
@@ -24,6 +24,8 @@ We do not introduce 'hard' constraints, but we use a cost function that penalize
 NOTE: There are basically 2 options to set a good trade-off between accuracy and speed of the optimization:
 1 => Reduce the weights and increase a little the population size and maxiter (the local effect will be more evident)
 2 => Increase the weights and reduce the population size and maxiter (the local effect will be less evident)
+
+Modified for video creation with multiple target frames.
 '''
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
@@ -103,7 +105,7 @@ def geom_collision_penalty(q, model, data, robot_geom_ids, floor_geom_id=None, c
     return collision_weight * penalty
 
 # Cost weights
-W_POSE = 1e8 # 1e12
+W_POSE = 1e10 # 1e12
 W_JOINT_DISP = 0
 W_LIMITS = 0 # 1e2
 W_ELBOW = 0
@@ -210,6 +212,11 @@ def setup_gpu_context():
     
     print("GPU context setup complete")
 
+def setup_target_frames(model, data, ref_body_ids, target_poses):
+    """Setup all target frames at their specified poses"""
+    for i, (pos, quat) in enumerate(target_poses):
+        set_body_pose(model, data, ref_body_ids[i], pos, [quat[3], quat[0], quat[1], quat[2]])
+    mujoco.mj_forward(model, data)
 
 def main():
     verbose = True
@@ -232,7 +239,21 @@ def main():
     print(f"Using {n_workers} parallel workers for GPU acceleration")
 
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
-    ref_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "reference_target")
+    
+    # Get reference body IDs for multiple target frames
+    ref_body_ids = []
+    for i in range(3):  # Assuming you have 3 reference targets
+        try:
+            ref_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"reference_target_{i+1}")
+            if ref_body_id == -1:
+                # Fallback to single reference target if multiple don't exist
+                ref_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "reference_target")
+            ref_body_ids.append(ref_body_id)
+        except:
+            # If reference_target_{i+1} doesn't exist, use the main reference_target
+            ref_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "reference_target")
+            ref_body_ids.append(ref_body_id)
+    
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
 
@@ -255,36 +276,62 @@ def main():
             robot_geom_ids.append(i)
 
     floor_geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
-    #print("Robot geom ids:", robot_geom_ids)
-    #print("Floor geom id:", floor_geom_id)
 
     print("\nGeoms list:")
     for i in range(model.ngeom):
         print(i, mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i))
 
+    # Define 3 target poses for the video
     target_poses = [
         (np.array([0.2, -0.2, 0.2]), R.from_euler('xyz', [180, 0, 0], degrees=True).as_quat()),
+        (np.array([0.3, 0.1, 0.7]), R.from_euler('xyz', [0, 0, 0], degrees=True).as_quat()),
+        (np.array([0.3, 0.3, 0.3]), R.from_euler('xyz', [135, 0, 90], degrees=True).as_quat()),
     ]
+    
     joint_lims = model.jnt_range[:6]
+    q_seed = np.zeros(6)  # Seed for optimization
+    q_start = np.radians([-8.38, -68.05, -138, -64, 90, -7.85])  # Pleasant starting configuration
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
-        input("Press Enter to start the pose...")
+        # Setup initial robot configuration
+        print("Setting up initial scene...")
+        
+        # Set base and tool body poses
+        model.body_pos[base_body_id] = [-0.1, -0.1, 0.15]
+        model.body_quat[base_body_id] = euler_to_quaternion(45, 0, 0, degrees=True)
+        model.body_pos[tool_body_id] = [0.1, 0.1, 0.25]
+        model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
+        
+        # Set robot to starting configuration
+        data.qpos[:6] = q_start
+        
+        # Setup all target frames
+        setup_target_frames(model, data, ref_body_ids, target_poses)
+        
+        # Update visualization
+        mujoco.mj_forward(model, data)
+        viewer.sync()
+        
+        print("Initial scene setup complete.")
+        print(f"Robot starting configuration: {np.round(np.degrees(q_start), 2)} degrees")
+        print(f"Number of target frames: {len(target_poses)}")
+        for i, (pos, quat) in enumerate(target_poses):
+            print(f"  Target {i+1}: pos={np.round(pos, 3)}, quat={np.round(quat, 3)}")
+        
+        input("Press Enter to start optimization sequence...")
 
-        for pos, quat in target_poses:
-            model.body_pos[base_body_id] = [-0.1, -0.1, 0.2]
-            model.body_quat[base_body_id] = euler_to_quaternion(45, 45, 0, degrees=True)
-            model.body_pos[tool_body_id] = [0.1, 0.1, 0.25]
-            model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
-
-            set_body_pose(model, data, ref_body_id, pos, [quat[3], quat[0], quat[1], quat[2]])
-            mujoco.mj_forward(model, data)
-
+        # Optimize for each target frame
+        for target_idx, (pos, quat) in enumerate(target_poses):
+            print(f"\n{'='*60}")
+            print(f"OPTIMIZING FOR TARGET {target_idx + 1} OF {len(target_poses)}")
+            print(f"{'='*60}")
+            
             R_target = R.from_quat(quat).as_matrix()
             z_dir_des = R_target[:, 2].copy()
             elbow_pref = (joint_lims[3,0], joint_lims[3,0]+0.4*(joint_lims[3,1]-joint_lims[3,0]))
 
-            #q_seed = np.radians([-8.38, -68.05, -138, -64, 90, -7.85])
-            q_seed = np.zeros(6)  # Reset seed to zero for simplicity
+            print(f"Target position: {np.round(pos, 3)}")
+            print(f"Target z-direction: {np.round(z_dir_des, 3)}")
 
             print("\n[Global optimization: fast settings]")
             start_time = time.time()
@@ -296,27 +343,27 @@ def main():
 
             bounds = list(zip(joint_lims[:,0], joint_lims[:,1]))
 
-            # --- Fast global optimization: lower popsize and maxiter ---
+            # Global optimization
             result = differential_evolution(
                 cost_wrap,
                 bounds,
-                popsize=30,    # 4
-                maxiter=200,   # 40
-                polish=False, # Disable internal local search for explicit control
+                popsize=30,
+                maxiter=250,
+                polish=False,
                 workers=1,
                 updating='deferred',
-                seed=42 # 42 => For reproducibility of the results
+                seed=42
             )
             q_global = result.x
             global_time = time.time() - start_time
             print(f"Global search completed in {global_time:.2f} seconds")
 
+            # Update robot configuration and display
             data.qpos[:6] = q_global
             mujoco.mj_forward(model, data)
             viewer.sync()
-            time.sleep(show_pose_duration)
 
-            # --- Local refinement with L-BFGS-B ---
+            # Local refinement
             print("[Local refinement: gradient-based polish]")
             start_time = time.time()
             def local_cost(q):
@@ -335,22 +382,31 @@ def main():
             local_time = time.time() - start_time
             print(f"Local refinement completed in {local_time:.2f} seconds")
 
+            # Update robot to final optimized configuration
             data.qpos[:6] = q_opt
             mujoco.mj_forward(model, data)
             viewer.sync()
-            time.sleep(show_pose_duration)
 
-            print("\nFinal configuration (after local polish):", np.round(q_opt, 3))
+            # Display results
+            print(f"\nFinal configuration for target {target_idx + 1}:", np.round(q_opt, 3))
             print("Tool site:", np.round(data.site_xpos[tool_site_id],3))
             print("z_dir:", np.round(get_tool_z_direction(data, tool_site_id),3))
             print("Pose cost (should be ~0):", np.sum(five_dof_error_with_sign(q_opt, model, data, tool_site_id, pos, z_dir_des)**2))
             print("Inverse manipulability:", np.abs(1/manipulability(q_opt, model, data, tool_site_id)))
             print(f"Total optimization time: {global_time+local_time:.2f} seconds")
 
-            viewer.sync()
+            # Hold pose for video
             time.sleep(show_pose_duration)
+            
+            # Update viewer
+            viewer.sync()
 
-        if verbose: print("\n--- Finished ---")
+        if verbose: 
+            print(f"\n{'='*60}")
+            print("OPTIMIZATION SEQUENCE COMPLETED")
+            print(f"{'='*60}")
+            print(f"Successfully optimized for {len(target_poses)} target frames")
+            
         input("Press Enter to close the viewer...")
 
 if __name__ == "__main__":
