@@ -7,8 +7,12 @@ from scipy.optimize import minimize, NonlinearConstraint
 import time, os, sys
 
 ''' 
-This script demonstrates how to use nonlinear constrained optimization to solve the redundancy problem in a 6-DOF robot arm.
+This script demonstrates how to use nonlinear constrained (with hard constraints now) optimization to solve 
+    the redundancy problem in a 6-DOF robot arm.
 Compare the results with the previous test_redundancy.py script.
+In this code, the redundancy exploiattion does not happen with a null-space optimization, but with a real nonlinear constrained optimization.
+Moreover, unlike 'test_redundancy.py', the constraints are no more 'implicit' (5-dof Jacobian projection), 
+    but 'explicit' (NonLinearConstraint).
 '''
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):

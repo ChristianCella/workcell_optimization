@@ -5,6 +5,16 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 import time, os, sys
 
+'''
+This code enforces a local optimization of the reundancy around an initial guess.
+The method eployed is absed on the projection on the null space, where we define a cost function that maximizes the manipulability of the robot. 
+The constraint x* = f(q) is substituted by the minimization of the error ||x* - f(q)||, that becomes:
+    - e(q) = [p(q) - p_des; proj_{perp des}(z_tool x z_des)] \in \mathbb{R}^5 (5, not 6, since the rotation around z is free) 
+The problem is that this method depends on the inital guess.
+NOTE: the constraint is enforced by re-porjecting on the allowed manifold at the end of the null-space optimization.
+This is why peformances are not great.
+'''
+
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
     q = r.as_quat()

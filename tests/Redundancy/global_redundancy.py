@@ -7,8 +7,21 @@ from scipy.optimize import differential_evolution, minimize
 import time, os, sys
 import threading
 
-''' 
-There are basically 2 options:
+'''
+This coed allows to perform a global optimization of the redundancy problem in a 6-DOF robot arm.
+The method is based on the differential evolution algorithm, which is a global optimization algorithm (inspired by bioik).
+The optimization is performed in two steps:
+1. A global optimization is performed using the differential evolution algorithm, which is a population-based algorithm that explores the search space.
+2. A local refinement is performed using the L-BFGS-B algorithm, which is a gradient-based algorithm that refines the solution found by the global optimization.
+The cost function is defined as the sum of the following terms: 
+- Pose error: the error between the desired position and orientation of the tool and the actual position and orientation of the tool.
+- Joint displacement: the error between the current joint configuration and a seed configuration (e.g., zero configuration).
+- Joint limits: a penalty for violating joint limits.
+- Elbow preference: a penalty for violating the elbow preference (if defined).
+- Manipulability: a penalty for low manipulability (inverse manipulability).
+We do not introduce 'hard' constraints, but we use a cost function that penalizes the violation of the constraints.
+
+NOTE: There are basically 2 options to set a good trade-off between accuracy and speed of the optimization:
 1 => Reduce the weights and increase a little the population size and maxiter (the local effect will be more evident)
 2 => Increase the weights and reduce the population size and maxiter (the local effect will be less evident)
 '''
@@ -287,8 +300,8 @@ def main():
             result = differential_evolution(
                 cost_wrap,
                 bounds,
-                popsize=20,    # 4
-                maxiter=150,   # 40
+                popsize=30,    # 4
+                maxiter=200,   # 40
                 polish=False, # Disable internal local search for explicit control
                 workers=1,
                 updating='deferred',
