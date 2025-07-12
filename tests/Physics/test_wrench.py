@@ -20,6 +20,12 @@ Case 2) robot_motion = True ==> Move the robot to a desired configuration.
 - In this case, you do not impose an initial configuration to the robot, but the PID controller will produce the
     torques needed to reach the desired configuration.
 - Of course, since the trajectory is not given, the PID struggles in reaching the desired configuration, especially for joint 1.
+
+NOTE: The resolution of the inverse dynamics works perfectly. There is a minor issue:
+- if 'model.opt.timestep' is smaller than 0.0001 => no problem
+- if 'model.opt.timestep' is larger than 0.0001 => the small numerical errors sum up and the robot diverges
+- To avoid having computationally intensive simulations, set 'model.opt.timestep' to 0.002 or leave the default: you can 
+    correct the numerical errors by enabling the PD controller.
 '''
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
@@ -44,13 +50,17 @@ def set_joint_configuration(data, model, desired_qpos):
 def main():
 
     # Path setup
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     sys.path.append(base_dir)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e/scene.xml")
 
     # Variables
     verbose = True
+<<<<<<< HEAD:tests/test_wrench.py
     robot_motion = True
+=======
+    robot_motion = False
+>>>>>>> origin/main:tests/Physics/test_wrench.py
     enable_control = True
     Kp = np.array([500, 500, 500, 150, 150, 150])
     Kd = np.array([30, 30, 30, 30, 30, 30])
@@ -58,6 +68,8 @@ def main():
 
     try:
         model = mujoco.MjModel.from_xml_path(xml_path)
+        #model.opt.integrator = mujoco.mjtIntegrator.mjINT_RK4
+        #model.opt.timestep = 0.0001 
         data = mujoco.MjData(model)
         mujoco.mj_resetData(model, data)
 
@@ -76,8 +88,8 @@ def main():
         tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
 
         # Forces defined in the world frame and applied at the tool center
-        external_force_world = np.array([0.0, 0.0, 0.0])
-        external_torque_world = np.array([0.0, 0.0, 0.0])
+        external_force_world = np.array([10.0, 0.0, 5.0 * 9.81])
+        external_torque_world = np.array([0.0, 20.0, 0.0])
         wrench_world = np.hstack([external_force_world, external_torque_world])
 
         with mujoco.viewer.launch_passive(model, data) as viewer:
@@ -88,12 +100,12 @@ def main():
             for idx, desired_qpos in enumerate(target_qpos_list):
 
                 # Set the robot base to a new pose
-                model.body_pos[base_body_id] = [idx * 0.3, idx * 0.1, 0.5]
-                model.body_quat[base_body_id] = euler_to_quaternion(45, 45, 0, degrees=True)
+                model.body_pos[base_body_id] = [idx * 0.3, idx * 0.1, idx * 0.05 + 0.15]
+                model.body_quat[base_body_id] = euler_to_quaternion(10 * idx, 45, 0, degrees=True)
 
                 # Set the tool to a new pose with respect to the ee (flange)
                 model.body_pos[tool_body_id] = [0.1, 0.1, 0.1]
-                model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
+                model.body_quat[tool_body_id] = euler_to_quaternion(20, 0, 0, degrees=True)
 
                 if not robot_motion: # You do not want the robot to move, just set the configuration
                     set_joint_configuration(data, model, desired_qpos)
@@ -124,6 +136,21 @@ def main():
                     jacr = np.zeros((3, model.nv))
                     mujoco.mj_jacSite(model, data, jacp, jacr, tool_site_id) # From world to tool site
                     J6 = np.vstack([jacp, jacr])[:, :6]
+
+                    # ! Some debugging on the Jacobian
+
+                    # For joint 5 (wrist_2_joint)
+                    p_tool = data.site_xpos[tool_site_id]
+                    joint5_id = 4  # update if your joint index differs!
+                    p_j5 = data.xpos[model.jnt_bodyid[joint5_id]]
+                    axis_j5 = model.jnt_axis[joint5_id]
+                    R_j5 = data.xmat[model.jnt_bodyid[joint5_id]].reshape(3,3)
+                    omega_j5 = R_j5 @ axis_j5
+                    manual_J35 = np.cross(omega_j5, p_tool - p_j5)[2]  # world z component
+                    print("Analytical J_{3,5} (from jacp):", jacp[2,4])
+                    print("Manual J_{3,5}:", manual_J35)
+
+                    # !
 
                     # Compute the total torque needed to stabilize the robot                   
                     tau_ext = J6.T @ wrench_world
