@@ -9,13 +9,17 @@ import time
 import sys
 
 ''' 
-This code leverages the package 'mink' for the resolution of the inverse kinematics problem.
-- No physics simulation is performed (no G(q), wrench), only the kinematics of the robot.
+No physics simulation is performed (no G(q), wrench), only the kinematics of the robot.
+There are 2 wasys of using this code:
+1)
 - You specify a target pose in Cartesian space (position + orientation) for the end-effector of a robot.
-- The code computes the inverse kinematics to find the joint angles that achieve this pose.
+- The code computes the inverse kinematics to find the joint angles that achieve this pose, after specifying a certain site.
 - It uses a simple damped least squares method to iteratively adjust the joint angles until the end-effector reaches the target pose.
 - This method does not allow to retrieve all the possible configurations
 - Still, it is useful to initialize another algorithm to solve, for example, the redundancy.
+2) 
+- You directly specify a joint configuration (joint angles) for the robot.
+- This becomes really useful to test the training of the normalizing flow 'ikflow'
 '''
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
@@ -73,17 +77,14 @@ def main():
     mujoco.mj_resetData(model, data)
 
     # Get body/site IDs
-    tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
+    tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "ee_site")
     ref_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "reference_target")   
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
 
     # Define Cartesian target poses (world frame), as (position, quaternion)
     target_poses = [
-        (np.array([0.5, 0.0, 0.6]), R.from_euler('xyz', [0, 0, 0], degrees=True).as_quat()),  # identity
-        (np.array([0.4, 0.2, 0.5]), R.from_euler('xyz', [90, 0, 0], degrees=True).as_quat()), # tip down
-        (np.array([0.3, -0.3, 0.4]), R.from_euler('xyz', [0, 90, 0], degrees=True).as_quat()), # rotate y
-        (np.array([0.6, 0.1, 0.7]), R.from_euler('xyz', [45, 0, 90], degrees=True).as_quat()), # arbitrary
+        (np.array([0.5, 0.0, 0.3]), R.from_euler('xyz', [0, 0, 0], degrees=True).as_quat())
     ]
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
@@ -91,12 +92,12 @@ def main():
         for pos, quat in target_poses:
 
             # Set robot base (matrix A^w_b)
-            model.body_pos[base_body_id] = [0.1, 0.1, 0.5]
-            model.body_quat[base_body_id] = euler_to_quaternion(45, 45, 0, degrees=True)
+            model.body_pos[base_body_id] = [0.0, 0.0, 0.0]
+            model.body_quat[base_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
 
             # Set the tool to a new pose with respect to the ee (define A^ee_t)
-            model.body_pos[tool_body_id] = [0.1, 0.1, 0.1]
-            model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
+            #model.body_pos[tool_body_id] = [0.0, 0.0, 0.0]
+            #model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
             
             if verbose: print(f"\n==> Target Cartesian pose: pos {np.round(pos, 3)}, quat {np.round(quat, 3)}")
 
@@ -105,14 +106,19 @@ def main():
             mujoco.mj_forward(model, data)
 
             # Compute IK for the tool_site to reach this pose
-            q_sol = ik_tool_site(model, data, tool_site_id, pos, quat)
-            data.qpos[:6] = q_sol # Set the robtot in this retrieved configuration
+            #q_sol = ik_tool_site(model, data, tool_site_id, pos, quat) # Compute IK
+            q_sol = [-2.8706700801849365, 4.433059215545654, -1.739058256149292, -2.6368861198425293, -2.871962547302246, 3.2053189277648926]
+            data.qpos[:6] = q_sol
             mujoco.mj_forward(model, data)
 
             if verbose:
                 print(f"IK => joint solution (deg): {np.round(np.degrees(q_sol), 2)}")
-                print(f"FK => Tool site reached: {np.round(data.site_xpos[tool_site_id], 3)}")
-                print(f"Error norm: {np.linalg.norm(data.site_xpos[tool_site_id] - pos):.5f}")
+                ee_bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "wrist_3_link")
+                pos_body = data.xpos[ee_bid]                    # 3-vector
+                quat_body = np.zeros(4, dtype=np.float64)
+                mujoco.mju_mat2Quat(quat_body, data.xmat[ee_bid])  # [w,x,y,z]
+
+                print("MuJoCo body FK:", np.round(np.hstack([pos_body, quat_body]), 3))
 
             viewer.sync()
             time.sleep(show_pose_duration)  # show each pose for 1s
