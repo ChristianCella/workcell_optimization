@@ -84,7 +84,11 @@ def main():
 
     # Define Cartesian target poses (world frame), as (position, quaternion)
     target_poses = [
-        (np.array([0.5, 0.0, 0.3]), R.from_euler('xyz', [0, 0, 0], degrees=True).as_quat())
+        #(np.array([0.5, 0.0, 0.3]), R.from_euler('xyz', [0, 0, 0], degrees=True).as_quat())
+        (
+            np.array([ -0.5430, -0.0486,  0.4806 ]), 
+            np.array([  0.3760, -0.5168,  0.4190,  0.6450 ])
+        )
     ]
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
@@ -107,7 +111,7 @@ def main():
 
             # Compute IK for the tool_site to reach this pose
             #q_sol = ik_tool_site(model, data, tool_site_id, pos, quat) # Compute IK
-            q_sol = [-2.8706700801849365, 4.433059215545654, -1.739058256149292, -2.6368861198425293, -2.871962547302246, 3.2053189277648926]
+            q_sol = [-5.945596694946289, 4.255064964294434, -1.5424609184265137, 0.585982620716095, -4.662619590759277, 1.4589440822601318]
             data.qpos[:6] = q_sol
             mujoco.mj_forward(model, data)
 
