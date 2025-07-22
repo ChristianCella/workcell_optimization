@@ -1,28 +1,55 @@
-# Robotic screwdriving application 🪛
-This repo allows to optimize a robotic screwdriving cell, regardless of the robot, the position of the workpiece and the number of screws. An extended version to accoutn for general contact applications is under development.
+# Optimization of a robotic workcell 🤖🪛➡️
+This repo allows to optimize a robotic ell, regardless of the robot, the position of the workpiece and the number of screws. An extended version to accoutn for general contact applications is under development.
 
 ---
 
 ### **Requirements and OS** 🪟 <a name="Requirements"></a>
-The work is meant to be python-based, without the necessity to be enclosed in a ROS framework. The suggested requirements are:
+The work is meant to be python-based, without the necessity to be enclosed in a ROS/ROS2 framework. The suggested requirements are:
 - ❇️ Windows 11 / Ubuntu 22.04
 - ❇️ Python 3.10.0 (higher versions may be good too; not tested though)
 - ❇️ VSCode or PyCharm (tested on VSCode)
 
 ---
 
+### **Project structure** 🏗️ <a name="Structure"></a> 
+This project relies on utilities for mujoco ([link](https://github.com/ChristianCella/ur5e_utils_mujoco.git)) and an IK solver (link), as depicted in the following:
+```
+├── ur5e_utils_mujoco/           # utilities for mujoco and ikflow 
+    ├── ...
+    ├── ur5e.xml
+    ├── ur5e.urdf
+├── workcell_optimization/       # this package (explained in the following)
+└── ikflow/                      # normalizing flow for inverse kinematics   
+```
+
+For what concerns [workcell_optimization](https://github.com/ChristianCella/workcell_optimization.git), the structure is currently the following:
+
+```
+├── bayesian_optimizers/         # codes for Bayesian Optimization
+├── tests/                       # test codes
+├── use_case/                    # real tests
+├── utils/                       # some utilities codes
+├── .gitignore                             
+├── readme.md
+└── requirements.txt   
+```
+
+---
+
 ### **Installation procedure** ▶️ <a name="Install"></a> 
 
-Install the repository:
+Craete a folder (for example 'robotic_conatct_operations') and clone the required packages:
 
 ```
-git clone https://github.com/ChristianCella/Screwdriving_MuJoCo.git
+https://github.com/ChristianCella/workcell_optimization.git
+https://github.com/ChristianCella/ur5e_utils_mujoco.git
+SOON AVAILABLE
 ```
 
-open a terminal in the directory ```../Screwdriving_MuJoCo``` and create a virtual environment called ```.venv``` (if using Windows 11):
+open a terminal in the directory ```../workcell_optimization``` and create a virtual environment called ```.venv``` (if using Windows 11):
 
 ```
-python -m venv .venv
+python 3.10 -m venv .venv
 ```
 and activate it from the terminal typing ```.venv\Scripts\activate``` (for Windows; if you need to deactivate it for some reason, type ```deactivate```). At this point, install all dependencies with ```pip install -r requirements.txt```. Remember to work on a branch, not on main! To do so, create a branch:
 
@@ -37,21 +64,6 @@ git checkout "desired_branch_name"
 ```
 
 Before proceeding, always make sure that you really checked out on that branch with ```git branch -a```.
-
----
-
-### **Project structure** 🏗️ <a name="Structure"></a> 
-At the moment, the structure is the following:
-
-```
-├── bayesian_optimizers/         # codes for Bayesian Optimization
-├── tests/                       # test codes
-├── universal_robots_ur5e/       # xml code to setup the MuJoCo scene
-├── utils/                       # some utilities codes
-├── .gitignore                             
-├── readme.md
-└── requirements.txt   
-```
 
 ---
 
