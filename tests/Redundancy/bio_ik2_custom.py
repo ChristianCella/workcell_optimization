@@ -171,9 +171,9 @@ class BioIK2Solver:
         return pop[int(np.argmin(costs))]
 
 if __name__ == '__main__':
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
     sys.path.append(base_dir)
-    xml_path = os.path.join(base_dir, 'universal_robots_ur5e', 'scene.xml')
+    xml_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene.xml")
 
     model = mujoco.MjModel.from_xml_path(xml_path)
     data  = mujoco.MjData(model)

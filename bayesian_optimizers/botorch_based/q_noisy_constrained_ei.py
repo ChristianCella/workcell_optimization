@@ -26,7 +26,7 @@ from botorch.test_functions import Hartmann
 
 # Block 2
 
-from botorch.models import FixedNoiseGP, ModelListGP
+from botorch.models import FixedNoiseGP, ModelListGP #! FIX this
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 
 # Block 3

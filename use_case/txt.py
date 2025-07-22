@@ -118,8 +118,11 @@ def make_simulator(xml_path, pieces_target_poses, wrench_world):
 # ───── Main ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    xml_path = os.path.join(base_dir, "universal_robots_ur5e", "scene.xml")
+
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    print(f"Base directory: {base_dir}")
+    sys.path.append(base_dir)
+    xml_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene.xml")
 
     pieces_target_poses = [
         (np.array([0.2, -0.2, 0.2]), R.from_euler('xyz',[180,0,0],True).as_quat()),
