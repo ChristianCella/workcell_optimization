@@ -111,7 +111,7 @@ def main():
 
             # Compute IK for the tool_site to reach this pose
             #q_sol = ik_tool_site(model, data, tool_site_id, pos, quat) # Compute IK
-            q_sol = [-5.2105,  3.7323,  2.2147, -1.4022, -1.5533,  4.8761]
+            q_sol = [2.982410430908203, -0.07887786626815796, -1.2696928977966309, -5.115238666534424, -5.249078750610352, 4.688918590545654]
             data.qpos[:6] = q_sol
             mujoco.mj_forward(model, data)
 
