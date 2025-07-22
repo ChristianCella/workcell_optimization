@@ -49,7 +49,7 @@ SOON AVAILABLE
 open a terminal in the directory ```../workcell_optimization``` and create a virtual environment called ```.venv``` (if using Windows 11):
 
 ```
-python 3.10 -m venv .venv
+py 3.10 -m venv .venv
 ```
 and activate it from the terminal typing ```.venv\Scripts\activate``` (for Windows; if you need to deactivate it for some reason, type ```deactivate```). At this point, install all dependencies with ```pip install -r requirements.txt```. Remember to work on a branch, not on main! To do so, create a branch:
 
