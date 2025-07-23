@@ -9,7 +9,8 @@ import torch
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 
-from make_inference import solve_ik  
+sys.path.insert(0, os.path.dirname(__file__))
+from inference_parallelized import FastIKFlowSolver, solve_ik_fast, solve_ik_rotational_sweep
 
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
@@ -95,10 +96,15 @@ def main():
     ], dtype=np.float64)
 
     #! Make inference on the nornmalizing flow (ikflow)
-    N = 100    
+    N = 1000
+    fast_ik_solver = FastIKFlowSolver()    
     tgt_tensor = torch.from_numpy(target.astype(np.float32))
     counter_start_inference = time.time()
-    sols_ok, fk_ok = solve_ik(tgt_tensor, N=N)
+    sols_ok, fk_ok = solve_ik_fast(tgt_tensor, N=N, fast_solver=fast_ik_solver)
+    #sweeps = solve_ik_rotational_sweep(tgt_tensor, N_samples=2, N_disc=4, fast_solver=fast_ik_solver)
+    #sols_ok, fk_ok = zip(*sweeps) 
+    #sols_ok = torch.cat(sols_ok, dim=0)   # now a torch.Tensor
+    #fk_ok   = torch.cat(fk_ok,   dim=0)   # now a torch.Tensor
     counter_end_inference = time.time()
     if verbose: print(f"--- Inference took {counter_end_inference - counter_start_inference:.2f} seconds for {N} samples ---")
 

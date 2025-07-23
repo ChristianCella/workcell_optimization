@@ -2,18 +2,22 @@
 import sys, os
 from pathlib import Path
 
-# ─── A) Make sure we import your editable ikflow clone first ───────────────
+''' 
+This code allows you to test the training of ikflow. Basically it is similar to the script 'inference.py' in 'ikflow',
+but it allows to test the network directly in this directory.
+The function defined here is used also in 'impose_q.py', in the case that you do not want to test a single hard-coded configuration.
+'''
+
+# Specify the path for ikflow
 script_path  = Path(__file__).resolve()
-# climb up to Robotic_contact_operations
 project_root = script_path.parents[3]
 ikflow_path  = project_root / "ikflow"
 if not ikflow_path.exists():
     raise FileNotFoundError(f"Cannot find local ikflow at {ikflow_path}")
-# remove any earlier entry and prepend our clone
 sys.path.pop(0)
 sys.path.insert(0, str(ikflow_path))
 
-# ─── B) Imports ────────────────────────────────────────────────────────────
+# Imports
 import torch
 from pathlib import Path as P
 from jrl.robots import Robot
@@ -25,11 +29,13 @@ from ikflow.training.lt_data  import IkfLitDataset
 from ikflow.config            import DATASET_TAG_NON_SELF_COLLIDING, DATASET_DIR
 from ikflow.utils             import get_dataset_filepaths
 
-# ─── Helper: build & return a loaded solver ────────────────────────────────
+# Build a loaded solver
 def setup_solver():
+
+    # choose device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 1) robot
+    # robot
     urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e.urdf"
     robot = Robot(
         name="ur5e_custom",
@@ -44,7 +50,7 @@ def setup_solver():
         collision_capsules_by_link=None,
     )
 
-    # 2) hyper-parameters
+    # hyperparameters (same as those used in training)
     h = IkflowModelParameters()
     h.coupling_layer         = "glow"
     h.nb_nodes               = 6
@@ -58,16 +64,17 @@ def setup_solver():
     h.zeros_noise_scale      = 1e-3
     h.sigmoid_on_output      = False
 
-    # 3) solver skeleton
+    # solver skeleton
     solver = IKFlowSolver(h, robot)
 
-    # 4) load dataset means/stds
+    # load dataset means/stds and normalize
     suffix = f"_{DATASET_TAG_NON_SELF_COLLIDING}"
     ddir   = os.path.join(DATASET_DIR, f"{robot.name}{suffix}")
     samples_fp, poses_fp, *_ = get_dataset_filepaths(ddir, [DATASET_TAG_NON_SELF_COLLIDING])
     samples_tr = torch.load(samples_fp).float().to(device)
     poses_tr   = torch.load(poses_fp).float().to(device)
-    # normalize
+
+    # normalize (NOTE: the network was trained with this, so it's paramount to make inference with this)
     x_mean = samples_tr.mean(dim=0)
     x_std  = samples_tr.std(dim=0)
     reorder  = torch.tensor([0,1,2,6,3,4,5], device=device)
@@ -75,7 +82,7 @@ def setup_solver():
     y_mean   = poses_re.mean(dim=0)
     y_std    = poses_re.std(dim=0)
 
-    # 5) attach transforms
+    # attach transforms
     ds = IkfLitDataset(
         robot_name   = robot.name,
         batch_size   = 1,
@@ -91,7 +98,7 @@ def setup_solver():
     solver._y_transform.mean = y_mean
     solver._y_transform.std  = y_std
 
-    # 6) load checkpoint
+    # Load weights (after training)
     #! Old (working nicely) weights
     '''
     ckpt = (
@@ -130,7 +137,7 @@ def setup_solver():
     return solver, device
 
 
-# ─── Public API: solve_ik ──────────────────────────────────────────────────
+# most important function
 def solve_ik(target_pose: torch.Tensor, N: int = 50):
     """
     Given target_pose (7,) = (x,y,z,qw,qx,qy,qz) and sample count N,
@@ -142,7 +149,7 @@ def solve_ik(target_pose: torch.Tensor, N: int = 50):
     solver, device = setup_solver()
     tgt = target_pose.to(device).view(1,7)
 
-    # approximate + small noise
+    # approximate + small noise (NOTE: usually the approx. solution is already good enough, but not perfect)
     sols, *_ = solver.generate_ik_solutions(
         tgt, n=N, latent_scale=0.01,
         clamp_to_joint_limits=True,
@@ -166,16 +173,16 @@ def solve_ik(target_pose: torch.Tensor, N: int = 50):
         dtype=torch.float32
     )
 
-    # filter only the OK ones
+    # filter only the OK ones (NOTE: if n_epochs in training increases, this will return more solutions)
     sols_ok = sols_ex[valid]
     fk_ok   = fk_all[valid]
 
     return sols_ok, fk_ok
 
 
-# ─── Example usage ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # define your target 7D pose
+
+    # target pose
     target = torch.tensor([
         -0.5430, -0.0486,  0.4806,
          0.3760, -0.5168,  0.4190,  0.6450

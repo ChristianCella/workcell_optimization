@@ -390,7 +390,7 @@ if __name__ == '__main__':
             solver.add_goal(PoseGoal(pos, z_dir, weight=1e10))
             solver.add_goal(JointLimitGoal(jlimits, weight=0))
             solver.add_goal(ElbowGoal(jlimits, alpha=0.4, weight=0))
-            solver.add_goal(ManipulabilityGoal(weight=1e5))
+            solver.add_goal(ManipulabilityGoal(weight=1e8))
             solver.add_goal(AntiAlignGoal(z_dir, weight=1e4))
             solver.add_goal(CollisionGoal(robot_geoms, floor_id, wt=1e5, weight=1.0))
 
