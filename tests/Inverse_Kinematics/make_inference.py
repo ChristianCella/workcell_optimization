@@ -92,10 +92,22 @@ def setup_solver():
     solver._y_transform.std  = y_std
 
     # 6) load checkpoint
+    #! Old (working nicely) weights
+    '''
     ckpt = (
         P.home() / ".cache" / "ikflow" / "training_logs" /
         "ur5e_custom--Jul.21.2025_08-43AM" /
         "ikflow-checkpoint-epoch-epoch=199.ckpt"
+    )
+    '''
+    #! New weights
+    ckpt = (
+        project_root
+        / "ikflow"  # the top‐level ikflow repo folder
+        / "ikflow"  # the python package subfolder
+        / "weights"
+        / "ur5e_custom--Jul.22.2025_06-17PM"
+        / "ikflow-checkpoint-epoch-epoch=214.ckpt"
     )
     lit = IkfLitModel.load_from_checkpoint(
         str(ckpt),
