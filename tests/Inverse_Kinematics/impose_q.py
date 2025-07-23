@@ -101,10 +101,6 @@ def main():
     tgt_tensor = torch.from_numpy(target.astype(np.float32))
     counter_start_inference = time.time()
     sols_ok, fk_ok = solve_ik_fast(tgt_tensor, N=N, fast_solver=fast_ik_solver)
-    #sweeps = solve_ik_rotational_sweep(tgt_tensor, N_samples=2, N_disc=4, fast_solver=fast_ik_solver)
-    #sols_ok, fk_ok = zip(*sweeps) 
-    #sols_ok = torch.cat(sols_ok, dim=0)   # now a torch.Tensor
-    #fk_ok   = torch.cat(fk_ok,   dim=0)   # now a torch.Tensor
     counter_end_inference = time.time()
     if verbose: print(f"--- Inference took {counter_end_inference - counter_start_inference:.2f} seconds for {N} samples ---")
 
