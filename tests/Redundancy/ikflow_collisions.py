@@ -9,31 +9,18 @@ import torch
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 
-sys.path.insert(0, os.path.dirname(__file__))
-from inference_parallelized import FastIKFlowSolver, solve_ik_fast, solve_ik_rotational_sweep
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../scene_manager')))
+from parameters import TestIkFlow
+params = TestIkFlow()
 
-
-def euler_to_quaternion(roll, pitch, yaw, degrees=False):
-    from scipy.spatial.transform import Rotation as R
-    r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
-    q = r.as_quat()
-    return [q[3], q[0], q[1], q[2]]  # [w, x, y, z]
-
-def rotm_to_quaternion(rotm):
-    from scipy.spatial.transform import Rotation as R
-    q = R.from_matrix(rotm).as_quat()
-    return [q[3], q[0], q[1], q[2]]  # [w, x, y, z]
-
-def set_body_pose(model, data, body_id, pos, quat):
-    model.body_pos[body_id] = pos
-    model.body_quat[body_id] = quat
-    mujoco.mj_forward(model, data)
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../utils'))
+sys.path.append(base_dir)
+import fonts
+from transformations import rotm_to_quaternion
+from mujoco_utils import set_body_pose, get_collisions, inverse_manipualbility
+from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
 def main():
-    # variables
-    verbose = True
-    use_ikflow = False  # set to False to test a hard-coded joint configuration 
-    show_pose_duration = 1.5  # seconds to show each pose
 
     # Path setup  
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
@@ -46,13 +33,11 @@ def main():
     mujoco.mj_resetData(model, data)
 
     # Get body/site IDs
-    ee_site_id    = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "ee_site")
     piece_body_id   = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "reference_target_1")
     base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
+    tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, 'tool_site')
     screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "screw_top")
-
-    #! Move bodies in space (simulation of 'changing' the layout)
 
     # Set robot base (matrix A^w_b)
     t_w_b = np.array([0, 0, 0])
@@ -60,19 +45,15 @@ def main():
     A_w_b = np.eye(4)
     A_w_b[:3, 3] = t_w_b
     A_w_b[:3, :3] = R_w_b
+    set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
-    model.body_pos[base_body_id] = A_w_b[:3, 3]
-    model.body_quat[base_body_id] = rotm_to_quaternion(A_w_b[:3, :3])
-
-    # Set the farme 'screw_top to a new pose wrt flange' and move the screwdriver there
-    t_ee_t1 = np.array([0, 0.1, -0.1])
-    R_ee_t1 = R.from_euler('xyz', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+    # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
+    t_ee_t1 = np.array([0, 0.15, 0])
+    R_ee_t1 = R.from_euler('xyz', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix()
     A_ee_t1 = np.eye(4)
     A_ee_t1[:3, 3] = t_ee_t1
     A_ee_t1[:3, :3] = R_ee_t1
-
-    model.body_pos[screwdriver_body_id] = A_ee_t1[:3, 3]
-    model.body_quat[screwdriver_body_id] = rotm_to_quaternion(A_ee_t1[:3, :3])
+    set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
     # Fixed transformation 'tool top (t1) => tool tip (t)'
     t_t1_t = np.array([0, 0.0, 0.26])
@@ -81,16 +62,16 @@ def main():
     A_t1_t[:3, 3] = t_t1_t
     A_t1_t[:3, :3] = R_t1_t
 
-    # Update the position of the tool tip
+    # Update the position of the tool tip (Just for visualization purposes)
     A_ee_t = A_ee_t1 @ A_t1_t  # combine the two transformations
+    set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
-    model.body_pos[tool_body_id] = A_ee_t[:3, 3]
-    model.body_quat[tool_body_id] = rotm_to_quaternion(A_ee_t[:3, :3])
-
-    # Piece in the world (define A^w_p) => this is also used to put teh frame in space  
-    theta_w_p_0 = np.radians(0)  # initial angle
-    t_w_p = np.array([0.3, -0.174, 0.7])
-    R_w_p = R.from_euler('xyz', [np.radians(0), 0, theta_w_p_0], degrees=False).as_matrix()
+    # Piece in the world (define A^w_p) => this is also used to put the frame in space  
+    theta_w_p_x_0 = np.radians(180)
+    theta_w_p_y_0 = np.radians(0)
+    theta_w_p_z_0 = np.radians(45)
+    t_w_p = np.array([0.2, 0.2, 0.2])
+    R_w_p = R.from_euler('xyz', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
     A_w_p = np.eye(4)
     A_w_p[:3, 3] = t_w_p
     A_w_p[:3, :3] = R_w_p
@@ -102,16 +83,14 @@ def main():
     A_wl3_ee[:3, 3] = t_wl3_ee
     A_wl3_ee[:3, :3] = R_wl3_e
 
-    #! Make inference on the nornmalizing flow (ikflow)
-    N = 20
-    N_disc = 18
-    fast_ik_solver = FastIKFlowSolver()    
-    
+    #! Make inference on the nornmalizing flow (ikflow)   
+    fast_ik_solver = FastIKFlowSolver()       
     counter_start_inference = time.time()
 
+    # Loop through the discrete configurations
     sols_ok, fk_ok = [], []
-    for i in range(N_disc): # 0, 1, 2, ... N_disc-1
-        R_w_p_rotated = R.from_euler('xyz', [np.radians(0), 0, theta_w_p_0 + i * 2 * np.pi / N_disc], degrees=False).as_matrix()
+    for i in range(params.N_disc): # 0, 1, 2, ... N_disc-1
+        R_w_p_rotated = R.from_euler('xyz', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 + i * 2 * np.pi / params.N_disc], degrees=False).as_matrix()
         A_w_p_rotated = np.eye(4)
         A_w_p_rotated[:3, 3] = t_w_p
         A_w_p_rotated[:3, :3] = R_w_p_rotated
@@ -122,12 +101,12 @@ def main():
             quat_pose[0], quat_pose[1], quat_pose[2], quat_pose[3]  # quaternion
         ], dtype=np.float64)
         tgt_tensor = torch.from_numpy(target.astype(np.float32))
-        sols_disc, fk_disc = solve_ik_fast(tgt_tensor, N=N, fast_solver=fast_ik_solver)
+        sols_disc, fk_disc = solve_ik_fast(tgt_tensor, N = params.N_samples, fast_solver=fast_ik_solver) # Find N solutions for this target
         sols_ok.append(sols_disc)
         fk_ok.append(fk_disc)
 
     counter_end_inference = time.time()
-    if verbose: print(f"--- Inference took {counter_end_inference - counter_start_inference:.2f} seconds for {N} samples ---")
+    if params.verbose: print(f"--- Inference took {counter_end_inference - counter_start_inference:.2f} seconds for {params.N_samples} samples ---")
 
     # bring solutions back to host for numpy()
     counter_start_cpu = time.time()
@@ -136,7 +115,7 @@ def main():
     sols_np = sols_ok.cpu().numpy()
     fk_np   = fk_ok.cpu().numpy()
     counter_end_cpu = time.time()
-    if verbose: print(f"--- Bringing solutions to cpu took {counter_end_cpu - counter_start_cpu:.2f} seconds ---")
+    if params.verbose: print(f"--- Bringing solutions to cpu took {counter_end_cpu - counter_start_cpu:.2f} seconds ---")
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input("Press Enter to start visualizing IK-flow solutions…")
@@ -149,37 +128,37 @@ def main():
         mujoco.mj_forward(model, data)
 
         # loop over each valid IK solution
-        if use_ikflow:
+        if params.use_ikflow:
             for i, (q, x) in enumerate(zip(sols_np, fk_np), 1):
-                if verbose:
+                if params.verbose:
                     print(f"[OK] sol {i:2d}: q={np.round(q,3)}  →  x={np.round(x,3)}")
 
                 # apply joint solution
                 data.qpos[:6] = q.tolist()
                 mujoco.mj_forward(model, data)
 
-                viewer.sync()
-                time.sleep(show_pose_duration)
-
-            if verbose:
-                print("\n--- Finished all IK-flow solutions. ---")
+                #viewer.sync()
+                n_cols = get_collisions(model, data, params.verbose)
+                sigma_manip = inverse_manipualbility(q, model, data, tool_site_id)
+                #time.sleep(params.show_pose_duration)
+                print(f"Number of collisions detected: {n_cols}; inverse manipulability: {sigma_manip:.3f}")
+                
             input("Press Enter to close the viewer…")
         else:
             # hard-coded joint configuration for testing
             q = np.radians([100, -94.96, 101.82, -95.72, -96.35, 180])
-            #q = np.array([np.radians(-8.38), np.radians(-68.05), np.radians(-138), np.radians(-64), np.radians(90), np.radians(90)])
             data.qpos[:6] = q.tolist()
             mujoco.mj_forward(model, data)
+
+            # Print collisions
+            n_cols = get_collisions(model, data, params.verbose)
+            print(f"Collisions detected: {n_cols}")
             viewer.sync()
 
             # Compute torques to compensate gravity
             gravity_comp = data.qfrc_bias[:6]
             
-
-            if verbose:
-                print(f"[OK] Hard-coded joint configuration: q={np.round(q,3)}")
-                print(f"Gravity compensation torques: {np.round(gravity_comp, 3)}")
-                print("\n--- Finished hard-coded joint configuration. ---")
+            if params.verbose: print(f"Gravity compensation torques: {np.round(gravity_comp, 3)}")
             input("Press Enter to close the viewer…")
 
 if __name__ == "__main__":

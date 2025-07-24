@@ -11,7 +11,7 @@ This code is an improvement of 'inference_single_pose.py' for two reasons:
 
 # Specify the path for ikflow
 script_path  = Path(__file__).resolve()
-project_root = script_path.parents[3]
+project_root = script_path.parents[2]
 ikflow_path  = project_root / "ikflow"
 if not ikflow_path.exists():
     raise FileNotFoundError(f"Cannot find local ikflow at {ikflow_path}")
@@ -119,6 +119,13 @@ class FastIKFlowSolver:
         self.solver._y_transform.mean, self.solver._y_transform.std = y_mean, y_std
 
         # load Lightning checkpoint
+        '''
+        ckpt = (
+            P.home() / ".cache" / "ikflow" / "training_logs" /
+            "ur5e_custom--Jul.21.2025_08-43AM" /
+            "ikflow-checkpoint-epoch-epoch=199.ckpt"
+        )
+        '''
         ckpt = (
             project_root
             / "ikflow" / "ikflow" / "weights"
