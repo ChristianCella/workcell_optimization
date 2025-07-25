@@ -106,7 +106,7 @@ def main():
         fk_ok.append(fk_disc)
 
     counter_end_inference = time.time()
-    if params.verbose: print(f"--- Inference took {counter_end_inference - counter_start_inference:.2f} seconds for {params.N_samples} samples ---")
+    print(f"--- Inference took {counter_end_inference - counter_start_inference:.2f} seconds for {params.N_samples} samples ---")
 
     # bring solutions back to host for numpy()
     counter_start_cpu = time.time()
@@ -128,6 +128,9 @@ def main():
         mujoco.mj_forward(model, data)
 
         # loop over each valid IK solution
+        cost = 1e12
+        best_cost = 1e12
+        start_inference = time.time()
         if params.use_ikflow:
             for i, (q, x) in enumerate(zip(sols_np, fk_np), 1):
                 if params.verbose:
@@ -141,8 +144,26 @@ def main():
                 n_cols = get_collisions(model, data, params.verbose)
                 sigma_manip = inverse_manipualbility(q, model, data, tool_site_id)
                 #time.sleep(params.show_pose_duration)
-                print(f"Number of collisions detected: {n_cols}; inverse manipulability: {sigma_manip:.3f}")
-                
+                #print(f"Number of collisions detected: {n_cols}; inverse manipulability: {sigma_manip:.3f}")
+
+                # Compute the metric for the evaluation
+                if n_cols > 0:
+                    cost = 1e12
+                else:
+                    cost = sigma_manip
+
+                # Save the configuration with best inverse manipulability
+                if cost < best_cost:
+                    best_cost = cost
+                    best_q = q
+
+            print(f"Evaluating collisions and Jacobian on {len(sols_np)} samples lasted {time.time() - start_inference:.2f} seconds")
+            print(f"The best configuration is: {np.round(best_q, 3)} with cost {best_cost:.3f}")
+            # Optimization is over => apply the best configuration
+            data.qpos[:6] = best_q.tolist()
+            mujoco.mj_forward(model, data)
+            viewer.sync()
+
             input("Press Enter to close the viewer…")
         else:
             # hard-coded joint configuration for testing
