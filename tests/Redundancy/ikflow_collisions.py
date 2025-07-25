@@ -17,7 +17,7 @@ base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../utils'
 sys.path.append(base_dir)
 import fonts
 from transformations import rotm_to_quaternion
-from mujoco_utils import set_body_pose, get_collisions, inverse_manipualbility
+from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
 def main():
@@ -48,8 +48,8 @@ def main():
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-    t_ee_t1 = np.array([0, 0.15, 0])
-    R_ee_t1 = R.from_euler('xyz', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+    t_ee_t1 = np.array([0, 0.15, 0]) # 0, 0.15, 0
+    R_ee_t1 = R.from_euler('xyz', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix() # 30, 0, 0
     A_ee_t1 = np.eye(4)
     A_ee_t1[:3, 3] = t_ee_t1
     A_ee_t1[:3, :3] = R_ee_t1
@@ -142,7 +142,7 @@ def main():
 
                 #viewer.sync()
                 n_cols = get_collisions(model, data, params.verbose)
-                sigma_manip = inverse_manipualbility(q, model, data, tool_site_id)
+                sigma_manip = inverse_manipulability(q, model, data, tool_site_id)
                 #time.sleep(params.show_pose_duration)
                 #print(f"Number of collisions detected: {n_cols}; inverse manipulability: {sigma_manip:.3f}")
 

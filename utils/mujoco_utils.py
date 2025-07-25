@@ -22,7 +22,7 @@ def get_collisions(model, data, verbose):
             if verbose: print(f"  • {name1} ↔ {name2}")
     return data.ncon
 
-def inverse_manipualbility(q, model, data, tool_site_id):
+def inverse_manipulability(q, model, data, tool_site_id):
     data.qpos[:model.nv] = q; mujoco.mj_forward(model, data)
     Jp = np.zeros((3,model.nv)); Jr = np.zeros((3,model.nv))
     mujoco.mj_jacSite(model, data, Jp, Jr, tool_site_id)
@@ -30,4 +30,10 @@ def inverse_manipualbility(q, model, data, tool_site_id):
     JJt = J @ J.T
     det = np.linalg.det(JJt)
     return 1e12 if det <= 1e-12 else 1.0/np.sqrt(det)
+
+def setup_target_frames(model, data, ref_body_ids, target_poses):
+    for i, (pos, quat) in enumerate(target_poses):
+        set_body_pose(model, data, ref_body_ids[i],
+                      pos, [quat[3], quat[0], quat[1], quat[2]])
+    mujoco.mj_forward(model, data)
 
