@@ -2,6 +2,8 @@
 import sys, os
 from pathlib import Path
 import time
+from contextlib import redirect_stderr
+import contextlib
 
 ''' 
 This code is an improvement of 'inference_single_pose.py' for two reasons:
@@ -28,6 +30,26 @@ from ikflow.training.lt_model import IkfLitModel
 from ikflow.training.lt_data  import IkfLitDataset
 from ikflow.config            import DATASET_TAG_NON_SELF_COLLIDING, DATASET_DIR
 from ikflow.utils             import get_dataset_filepaths
+
+@contextlib.contextmanager
+def suppress_native_stderr():
+    """
+    Redirect the OS-level stderr (fd 2) into /dev/null (or NUL on Windows)
+    so that even native extensions’ prints to stderr disappear.
+    """
+    # Open the null device
+    devnull = os.open(os.devnull, os.O_RDWR)
+    # Duplicate the current stderr fd (so we can restore it later)
+    old_stderr = os.dup(2)
+    # Replace stderr with our devnull
+    os.dup2(devnull, 2)
+    try:
+        yield
+    finally:
+        # Restore the original stderr
+        os.dup2(old_stderr, 2)
+        os.close(devnull)
+        os.close(old_stderr)
 
 def quat_to_mat(quat: torch.Tensor) -> torch.Tensor:
     """
@@ -65,18 +87,20 @@ class FastIKFlowSolver:
 
         # robot
         urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e.urdf"
-        robot = Robot(
-            name="ur5e_custom",
-            urdf_filepath=str(urdf_path),
-            active_joints=[
-                "shoulder_pan_joint","shoulder_lift_joint","elbow_joint",
-                "wrist_1_joint","wrist_2_joint","wrist_3_joint",
-            ],
-            base_link="base_link",
-            end_effector_link_name="wrist_3_link",
-            ignored_collision_pairs=[],
-            collision_capsules_by_link=None,
-        )
+        with suppress_native_stderr():
+
+            robot = Robot(
+                name="ur5e_custom",
+                urdf_filepath=str(urdf_path),
+                active_joints=[
+                    "shoulder_pan_joint","shoulder_lift_joint","elbow_joint",
+                    "wrist_1_joint","wrist_2_joint","wrist_3_joint",
+                ],
+                base_link="base_link",
+                end_effector_link_name="wrist_3_link",
+                ignored_collision_pairs=[],
+                collision_capsules_by_link=None,
+            )
 
         # hyper-parameters
         h = IkflowModelParameters()

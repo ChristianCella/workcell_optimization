@@ -41,7 +41,7 @@ def main():
 
     # Set robot base (matrix A^w_b)
     t_w_b = np.array([0, 0, 0])
-    R_w_b = R.from_euler('xyz', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+    R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
     A_w_b = np.eye(4)
     A_w_b[:3, 3] = t_w_b
     A_w_b[:3, :3] = R_w_b
@@ -49,7 +49,7 @@ def main():
 
     # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
     t_ee_t1 = np.array([0, 0.15, 0]) # 0, 0.15, 0
-    R_ee_t1 = R.from_euler('xyz', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix() # 30, 0, 0
+    R_ee_t1 = R.from_euler('XYZ', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix() # 30, 0, 0
     A_ee_t1 = np.eye(4)
     A_ee_t1[:3, 3] = t_ee_t1
     A_ee_t1[:3, :3] = R_ee_t1
@@ -57,7 +57,7 @@ def main():
 
     # Fixed transformation 'tool top (t1) => tool tip (t)'
     t_t1_t = np.array([0, 0.0, 0.26])
-    R_t1_t = R.from_euler('xyz', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+    R_t1_t = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
     A_t1_t = np.eye(4)
     A_t1_t[:3, 3] = t_t1_t
     A_t1_t[:3, :3] = R_t1_t
@@ -70,15 +70,15 @@ def main():
     theta_w_p_x_0 = np.radians(180)
     theta_w_p_y_0 = np.radians(0)
     theta_w_p_z_0 = np.radians(45)
-    t_w_p = np.array([0.2, 0.2, 0.2])
-    R_w_p = R.from_euler('xyz', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
+    t_w_p = np.array([0.2, 0.2, 0.2]) # [0.2, 0.2, 0.2]
+    R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
     A_w_p = np.eye(4)
     A_w_p[:3, 3] = t_w_p
     A_w_p[:3, :3] = R_w_p
 
     # End-effector with respect to wrist3
     t_wl3_ee = np.array([0, 0.1, 0])
-    R_wl3_e = R.from_euler('xyz', [np.radians(-90), 0, 0], degrees=False).as_matrix()
+    R_wl3_e = R.from_euler('XYZ', [np.radians(-90), 0, 0], degrees=False).as_matrix()
     A_wl3_ee = np.eye(4)
     A_wl3_ee[:3, 3] = t_wl3_ee
     A_wl3_ee[:3, :3] = R_wl3_e
@@ -90,7 +90,7 @@ def main():
     # Loop through the discrete configurations
     sols_ok, fk_ok = [], []
     for i in range(params.N_disc): # 0, 1, 2, ... N_disc-1
-        R_w_p_rotated = R.from_euler('xyz', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 + i * 2 * np.pi / params.N_disc], degrees=False).as_matrix()
+        R_w_p_rotated = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 + i * 2 * np.pi / params.N_disc], degrees=False).as_matrix()
         A_w_p_rotated = np.eye(4)
         A_w_p_rotated[:3, 3] = t_w_p
         A_w_p_rotated[:3, :3] = R_w_p_rotated
