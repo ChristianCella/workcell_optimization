@@ -166,6 +166,14 @@ def main():
 
             input("Press Enter to close the viewer…")
         else:
+            # Move the robot somewhere not centered in the world frame
+            t_w_b = np.array([0.3, 0.2, 0])
+            R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+            A_w_b = np.eye(4)
+            A_w_b[:3, 3] = t_w_b
+            A_w_b[:3, :3] = R_w_b
+            set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
+
             # hard-coded joint configuration for testing
             q = np.radians([100, -94.96, 101.82, -95.72, -96.35, 180])
             data.qpos[:6] = q.tolist()

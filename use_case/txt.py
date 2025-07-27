@@ -54,7 +54,7 @@ def make_simulator(xml_path, pieces_target_poses, wrench_world):
 
         # Set the new robot base (matrix A^w_b)
         t_w_b = np.array([float(params[0]), float(params[1]), 0])
-        R_w_b = R.from_euler('xyz', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+        R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
         A_w_b = np.eye(4)
         A_w_b[:3, 3] = t_w_b
         A_w_b[:3, :3] = R_w_b
@@ -63,7 +63,7 @@ def make_simulator(xml_path, pieces_target_poses, wrench_world):
         # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
         #! Fixed, for the moment
         t_ee_t1 = np.array([0, 0.15, 0])
-        R_ee_t1 = R.from_euler('xyz', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+        R_ee_t1 = R.from_euler('XYZ', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix()
         A_ee_t1 = np.eye(4)
         A_ee_t1[:3, 3] = t_ee_t1
         A_ee_t1[:3, :3] = R_ee_t1
@@ -71,7 +71,7 @@ def make_simulator(xml_path, pieces_target_poses, wrench_world):
 
         # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
         t_t1_t = np.array([0, 0.0, 0.26])
-        R_t1_t = R.from_euler('xyz', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+        R_t1_t = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
         A_t1_t = np.eye(4)
         A_t1_t[:3, 3] = t_t1_t
         A_t1_t[:3, :3] = R_t1_t
@@ -82,7 +82,7 @@ def make_simulator(xml_path, pieces_target_poses, wrench_world):
 
         # End-effector with respect to wrist3 (NOTE: this is always fixed)
         t_wl3_ee = np.array([0, 0.1, 0])
-        R_wl3_e = R.from_euler('xyz', [np.radians(-90), 0, 0], degrees=False).as_matrix()
+        R_wl3_e = R.from_euler('XYZ', [np.radians(-90), 0, 0], degrees=False).as_matrix()
         A_wl3_ee = np.eye(4)
         A_wl3_ee[:3, 3] = t_wl3_ee
         A_wl3_ee[:3, :3] = R_wl3_e
@@ -126,8 +126,8 @@ def make_simulator(xml_path, pieces_target_poses, wrench_world):
             fast_ik_solver = FastIKFlowSolver() 
             sols_ok, fk_ok = [], []
             for i in range(parameters.N_disc): # 0, 1, 2, ... N_disc-1
-                theta_x_0, theta_y_0, theta_z_0 = R.from_quat(pieces_target_poses[j][1]).as_euler('xyz', degrees=False)
-                R_w_p_rotated = R.from_euler('xyz', [theta_x_0, theta_y_0, theta_z_0 + i * 2 * np.pi / parameters.N_disc], degrees=False).as_matrix()
+                theta_x_0, theta_y_0, theta_z_0 = R.from_quat(pieces_target_poses[j][1]).as_euler('XYZ', degrees=False)
+                R_w_p_rotated = R.from_euler('XYZ', [theta_x_0, theta_y_0, theta_z_0 + i * 2 * np.pi / parameters.N_disc], degrees=False).as_matrix()
                 A_w_p_rotated = np.eye(4)
                 A_w_p_rotated[:3, 3] = pieces_target_poses[j][0]
                 A_w_p_rotated[:3, :3] = R_w_p_rotated
@@ -228,8 +228,8 @@ if __name__ == "__main__":
 
     #! Watch out: either rotations are in 'fixed' frame, or this method IS NOT correct
     pieces_target_poses = [
-        (np.array([0.2, 0.2, 0.2]), R.from_euler('xyz',[180, 0, 0],True).as_quat()),
-        (np.array([-0.3, -0.2, 0.3]), R.from_euler('xyz',[180, 0, 0],True).as_quat()),
+        (np.array([0.2, 0.2, 0.2]), R.from_euler('XYZ',[180, 0, 0],True).as_quat()),
+        (np.array([-0.3, -0.2, 0.3]), R.from_euler('XYZ',[180, 0, 0],True).as_quat()),
     ]
     f = np.array([0.0, 0.0, 10.0]) # ! Only a force in the z direction
     m = np.zeros(3)
