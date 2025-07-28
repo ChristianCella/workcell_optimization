@@ -24,17 +24,27 @@ import mujoco.viewer
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
 from parameters import TxtUseCase
 parameters = TxtUseCase()
+from manage_tools import attach_tool_to_robot 
+from manage_targets import create_reference_frames
 
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
 import fonts
-from transformations import rotm_to_quaternion
+from transformations import rotm_to_quaternion, get_world_wrench
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, setup_target_frames
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
 # ! Wrapper for the simulation
+def make_simulator(pieces_target_poses, local_wrenches):
 
-def make_simulator(xml_path, pieces_target_poses, wrench_world):
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+
+    # Create the temporary scene with the frames
+    temp_xml_path = create_reference_frames(base_dir, "ur5e_utils_mujoco/scene.xml", len(pieces_target_poses))
+    print(f"Temporary XML file created at: {temp_xml_path}")
+
+    # Attach the tool to the robot
+    xml_path = attach_tool_to_robot(base_dir = base_dir, scene_filename = "temp_scene.xml", tool_filename="screwdriver.xml")
     model = mujoco.MjModel.from_xml_path(xml_path)
     data  = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
@@ -42,15 +52,18 @@ def make_simulator(xml_path, pieces_target_poses, wrench_world):
     # Get body/site IDs
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
-    ref_body_ids = [
-        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"reference_target_1"),
-        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"reference_target_2")
-    ]
+    ref_body_ids = []
+    for i in range(len(pieces_target_poses)):
+        ref_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"reference_target_{i+1}")
+        ref_body_ids.append(ref_body_id)
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
     screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "screw_top")
 
     #! This method is run for every chromosome of a certain generation, for all generations
     def run_simulation(params: np.ndarray) -> float:
+
+        # This is fundamental
+        mujoco.mj_resetData(model, data)
 
         # Set the new robot base (matrix A^w_b)
         t_w_b = np.array([float(params[0]), float(params[1]), 0])
@@ -88,37 +101,19 @@ def make_simulator(xml_path, pieces_target_poses, wrench_world):
         A_wl3_ee[:3, :3] = R_wl3_e
 
         # Pieces in the world (define A^w_pi) => this is also used to put the frame in space 
-        #! Fixed, for the moment (NOTE: query to the database in the future) 
-        #theta_w_p1_x_0 = np.radians(180)
-        #theta_w_p1_y_0 = np.radians(0)
-        #theta_w_p1_z_0 = np.radians(45)
-        t_w_p1 = pieces_target_poses[0][0]
-        q_w_p1 = pieces_target_poses[0][1]
-        R_w_p1 = R.from_quat(q_w_p1).as_matrix()
-        A_w_p1 = np.eye(4)
-        A_w_p1[:3, 3] = t_w_p1 
-        A_w_p1[:3, :3] = R_w_p1
-
-        #theta_w_p2_x_0 = np.radians(180)
-        #theta_w_p2_y_0 = np.radians(0)
-        #theta_w_p2_z_0 = np.radians(45)
-        t_w_p2 = pieces_target_poses[1][0]
-        q_w_p2 = pieces_target_poses[1][1]
-        R_w_p2 = R.from_quat(q_w_p2).as_matrix()
-        A_w_p2 = np.eye(4)
-        A_w_p2[:3, 3] = t_w_p2
-        A_w_p2[:3, :3] = R_w_p2
         setup_target_frames(model, data, ref_body_ids, pieces_target_poses)
 
         # Set the robot to a configuration called q0
         q0 = np.radians([100, -94.96, 101.82, -95.72, -96.35, 180])
         data.qpos[:6] = q0.tolist()
         mujoco.mj_forward(model, data)
-        viewer.sync() # ! refresh the scene to see the new chromosome encoding the layout
+        if parameters.activate_gui: viewer.sync() # ! refresh the scene to see the new chromosome encoding the layout
 
         #! Optimization of redundancy
         norms = []
         best_configs = []
+        best_gravity_torques = [] # This will be removed
+        best_external_torques = [] # This will be removed
         for j in range(len(pieces_target_poses)): # ! For each piece to be screwed
             if parameters.verbose: print(f"Solving IK for target frame {j}")
 
@@ -185,11 +180,15 @@ def make_simulator(xml_path, pieces_target_poses, wrench_world):
 
             else: #! No IK solution found, set the best configuration to the default one (all joints at 0)               
                 best_q = np.zeros(6)
-            #input(f"All the IK solutions for piece {j} have been computed. Press Enter to continue…")               
+            #input(f"All the IK solutions for piece {j} have been computed. Press Enter to continue…") 
+            #               
             # Udate the viewer with the best configuration found
             data.qpos[:6] = best_q.tolist()
+            data.qvel[:] = 0  # clear velocities
+            data.qacc[:] = 0  # clear accelerations
+            data.ctrl[:] = 0  # (if using actuators, may help avoid torque pollution)
             mujoco.mj_forward(model, data)
-            viewer.sync()
+            if parameters.activate_gui: viewer.sync()
             time.sleep(3.0) # If this is not present, you will never have time to see also the 'optimal' config. for the final piece
 
             # ! Compute the torques for the best configuration
@@ -199,7 +198,11 @@ def make_simulator(xml_path, pieces_target_poses, wrench_world):
             J6 = np.vstack([Jp, Jr])[:, :6]
 
             tau_g = data.qfrc_bias[:6]
-            tau_ext = J6.T @ wrench_world
+            # tau_g = data.qfrc_bias[:6]
+            R_tool_to_world = data.site_xmat[tool_site_id].reshape(3, 3) # Rotation tool => world
+            R_world_to_tool = R_tool_to_world.T # Rotation world => tool
+            world_wrench = get_world_wrench(R_world_to_tool, local_wrenches[j]) #! Wrench in world frame
+            tau_ext = J6.T @ world_wrench
             tau_tot = tau_g + tau_ext
             if not np.array_equal(best_q, np.zeros(6)):
                 norms.append(np.linalg.norm(tau_tot)) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
@@ -208,40 +211,40 @@ def make_simulator(xml_path, pieces_target_poses, wrench_world):
 
             # Append the best configuration for this piece
             best_configs.append(best_q)
-            print(f"Best configuration for piece {j}: {np.round(best_q, 3)} with cost {best_cost:.3f}")
+            best_gravity_torques.append(tau_g)
+            best_external_torques.append(tau_ext)
+            if parameters.verbose: print(f"Best configuration for piece {j}: {np.round(best_q, 3)} with cost {best_cost:.3f}")
 
         # All the pieces to be screwed have been processed
         fitness = float(np.mean(norms)) # sum(|| tau_tot ||_2) / N_pieces
-        #print(f"Fitness function for a chromosome: {fitness:.6f}")
-        print(f"For generation {gen} the best configurations are: {best_configs}")
-        return fitness, best_configs
+        if parameters.verbose: print(f"For generation {gen} the best configurations are: {best_configs}")
+        return fitness, best_configs, best_gravity_torques, best_external_torques
 
     return run_simulation, model, data, base_body_id
 
-# ───── Main ───────────────────────────────────────────────────────────────────
 
+#! Main
 if __name__ == "__main__":
 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-    sys.path.append(base_dir)
-    xml_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene.xml")
-
-    #! Watch out: either rotations are in 'fixed' frame, or this method IS NOT correct
+    #! This will become a query to a database
     pieces_target_poses = [
         (np.array([0.2, 0.2, 0.2]), R.from_euler('XYZ',[180, 0, 0],True).as_quat()),
         (np.array([-0.3, -0.2, 0.3]), R.from_euler('XYZ',[180, 0, 0],True).as_quat()),
+        #(np.array([0.4, -0.2, 0.6]), R.from_euler('XYZ',[0, 0, 0],True).as_quat()),
     ]
-    f = np.array([0.0, 0.0, 10.0]) # ! Only a force in the z direction
-    m = np.zeros(3)
-    wrench_world = np.hstack([f, m])
+    local_wrenches = [
+        (np.array([0, 0, -30, 0, 0, -10])),
+        (np.array([0, 0, -20, 0, 0, -5])),
+        #(np.array([0, 0, -30, 0, 0, -10])),
+    ]
 
     run_sim, model, data, base_body_id = make_simulator(
-        xml_path, pieces_target_poses, wrench_world
+        pieces_target_poses, local_wrenches
     )
 
     # Parameters of the genetic algorithm
     dim = 2 # Number of dimensions of the search space (x_b, y_b)
-    x0 = np.zeros(dim)
+    x0 = np.zeros(dim) # Starting 'mean' value mu
     sigma0 = 0.5
     popsize = 3 # Number of chromosomes in the population
     max_gens = 4
@@ -253,50 +256,133 @@ if __name__ == "__main__":
     es = cma.CMAEvolutionStrategy(x0, sigma0, opts)
 
     # ! Start the optimization loop
-    with mujoco.viewer.launch_passive(model, data) as viewer:
+    viewer = None
+
+    if parameters.activate_gui: # Activate GUI for visualization
+        import mujoco.viewer
+        viewer = mujoco.viewer.launch_passive(model, data)
         input("Press Enter to start optimization…")
+    else: # The user does not want to see the GUI
+        print("Running in headless mode (no GUI).")
 
-        for gen in range(max_gens):
-            print(f"Generation of chromosomes number: {gen}")
-            sols = es.ask()
+    # Lists containing the trend of the best fitness
+    best_fitness_trend = []
+    best_configs_trend = []
+    best_gravity_trend = []
+    best_external_trend = []
+    best_solutions = []
+    starting_fitness = 1e12
+    
+    try:
+        for gen in range(max_gens): #! Until the maximum number of generations is reached
+            if parameters.verbose: print(f"Generation of chromosomes number: {gen}")
+            sols = es.ask() # Generate a new population of chromosomes
 
+            # Lists that will contain the results for this generation
             fitnesses = []
             best_configs = []
-            for idx, sol in enumerate(sols): # sol contains the x_b, y_b coordinates of the robot base for a chromosome of the batch
-                print(f"    • chromosome {idx}: {sol}")
-                fit, best_config = run_sim(sol)
+            best_gravity_torques_gen = []
+            best_external_torques_gen = []
+            for idx, sol in enumerate(sols): #! For each chromosome in the current generation
+                if parameters.verbose: print(f"    • chromosome {idx}: {sol}")
+                fit, best_config, best_gravity, best_external = run_sim(sol)
                 fitnesses.append(fit)
                 best_configs.append(best_config)
+                best_gravity_torques_gen.append(best_gravity)
+                best_external_torques_gen.append(best_external)
 
             print(f"For generation {gen} the fitnesses are: {fitnesses}, and the best fitness is: {min(fitnesses)}")
             print(f"For generation {gen} the complete set of best configurations is: {best_configs}")
 
+            # Update the distribution mean, step size and covariance matrix
             es.tell(sols, fitnesses)
             es.logger.add()
             es.disp()
 
-            # ! Put the robot base in the best position found so far
+            # Update robot base to best solution
             i_best = int(np.argmin(fitnesses))
             x_b, y_b  = sols[i_best][:2]
-            final_best_configs = best_configs[i_best]
-            print(f"The best configurations for generation {gen} is: {final_best_configs}")
-            set_body_pose(model, data, base_body_id, [x_b, y_b, 0], rotm_to_quaternion(np.eye(3))) #! To be changed
-            mujoco.mj_forward(model, data)
-            viewer.sync()
+            final_best_configs = best_configs[i_best] # Best joint configs for the current generation
+            if parameters.verbose: print(f"The best configurations for generation {gen} is: {final_best_configs}")
 
-            # 2) **for each** target frame, re-run IK & display
+            # Set the robot base to the best solution
+            set_body_pose(model, data, base_body_id, [x_b, y_b, 0], rotm_to_quaternion(np.eye(3))) # ! NOTE: this is not always identity!
+            mujoco.mj_forward(model, data)
+            if viewer: viewer.sync()
+
+            # For each screw/piece, apply the best configuration found
             for idx, (pos, quat) in enumerate(pieces_target_poses):
                 data.qpos[:6] = final_best_configs[idx][:6].tolist()
                 mujoco.mj_forward(model, data)
-                viewer.sync()
-                #input(f"Press enter to see the next optimal robot configuration")
+                if viewer: viewer.sync()
+                # input(f"Press Enter to see the next piece configuration (piece {idx+1})…")
 
+            # Custom implementation of 'keep track of the trend'
+            if min(fitnesses) < starting_fitness:
+                starting_fitness = min(fitnesses)
+                best_fitness_trend.append(starting_fitness)
+                best_solutions.append((x_b, y_b))
+                best_configs_trend.append(final_best_configs)
+                best_gravity_trend.append(best_gravity_torques_gen[i_best])
+                best_external_trend.append(best_external_torques_gen[i_best])
+            else:
+                best_fitness_trend.append(best_fitness_trend[-1])
+                best_solutions.append(best_solutions[-1])
+                best_configs_trend.append(best_configs_trend[-1])
+                best_gravity_trend.append(best_gravity_trend[-1])
+                best_external_trend.append(best_external_trend[-1])
+
+            #! In case that: the fitness does not improve for too long, the step size is too small, or others, stop the optimization
             if es.stop():
                 break
 
+        # Get the best across all generations
         res = es.result
+        
         print("\nOptimization terminated:")
-        print("  best solution:", res.xbest)
-        print(f"  best fitness : {res.fbest:.6f}")
+        print(f"The best position of the base according to the algorithm is: {res.xbest}")
+        print(f"The smaller fitness function according to the algorithm is: {res.fbest:.6f}")
+        print(f"The robot configurations associated to the best solutions are: {best_configs_trend[-1]}")
+        print(f"The best gravity torques associated to the best solutions are: {best_gravity_trend[-1]}")
+        print(f"The best external torques associated to the best solutions are: {best_external_trend[-1]}")
+        print(f"The best position of the base according to my logic is: {best_solutions[-1]}")       
+        print(f"The smaller fitness function according to my logic is: {best_fitness_trend[-1]:.6f}")
+        print(f"The robot configurations associated to the best solutions are: {best_configs_trend[-1]}")
 
-        input("Done — press Enter to exit…")
+        if viewer:
+            input("It is now possible to visualize the layout of the workcell. press enter to continue…")
+            mujoco.mj_resetData(model, data)
+            set_body_pose(model, data, base_body_id, [best_solutions[-1][0], best_solutions[-1][1], 0], rotm_to_quaternion(np.eye(3))) # ! NOTE: this is not always identity!
+            mujoco.mj_forward(model, data)
+            viewer.sync()
+            input("Press Enter to visualize the best configurations for each piece…")
+
+            norms = []
+            for idx, (pos, quat) in enumerate(pieces_target_poses):
+                data.qpos[:6] = best_configs_trend[-1][idx][:6].tolist()
+                mujoco.mj_forward(model, data)
+                viewer.sync()
+                # ! Compute the torques for the best configuration
+                tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
+                Jp = np.zeros((3, model.nv))
+                Jr = np.zeros((3, model.nv))
+                mujoco.mj_jacSite(model, data, Jp, Jr, tool_site_id)
+                J6 = np.vstack([Jp, Jr])[:, :6]
+
+                tau_g = data.qfrc_bias[:6]
+                R_tool_to_world = data.site_xmat[tool_site_id].reshape(3, 3) # Rotation tool => world
+                R_world_to_tool = R_tool_to_world.T # Rotation world => tool
+                world_wrench = get_world_wrench(R_world_to_tool, local_wrenches[idx]) #! Wrench in world frame
+                tau_ext = J6.T @ world_wrench
+                tau_tot = tau_g + tau_ext
+                norms.append(np.linalg.norm(tau_tot)) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
+                print(f"The gravity torques for piece {idx+1} are: {tau_g}")
+                print(f"The external torques for piece {idx+1} are: {tau_ext}")
+                input(f"Press Enter to see the next piece configuration (piece {idx+1})…")
+            print(f"The obtained fitness is {float(np.mean(norms))} for the best configurations found.")
+                
+
+    finally:
+        if viewer:
+            viewer.close()
+

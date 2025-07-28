@@ -12,6 +12,7 @@ from scipy.spatial.transform import Rotation as R
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../scene_manager')))
 from parameters import TestIkFlow
 params = TestIkFlow()
+from manage_tools import attach_tool_to_robot
 
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../utils'))
 sys.path.append(base_dir)
@@ -24,8 +25,9 @@ def main():
 
     # Path setup  
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
-    sys.path.append(base_dir)
-    xml_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene.xml")
+    #sys.path.append(base_dir)
+    #xml_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene.xml")
+    xml_path = attach_tool_to_robot(base_dir=base_dir, tool_filename="screwdriver.xml")
 
     # Load MuJoCo model
     model = mujoco.MjModel.from_xml_path(str(xml_path))
@@ -40,8 +42,8 @@ def main():
     screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "screw_top")
 
     # Set robot base (matrix A^w_b)
-    t_w_b = np.array([0, 0, 0])
-    R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+    t_w_b = np.array([0, 0, 0.2])
+    R_w_b = R.from_euler('XYZ', [np.radians(45), np.radians(0), np.radians(0)], degrees=False).as_matrix()
     A_w_b = np.eye(4)
     A_w_b[:3, 3] = t_w_b
     A_w_b[:3, :3] = R_w_b
@@ -140,10 +142,10 @@ def main():
                 data.qpos[:6] = q.tolist()
                 mujoco.mj_forward(model, data)
 
-                #viewer.sync()
+                viewer.sync()
                 n_cols = get_collisions(model, data, params.verbose)
                 sigma_manip = inverse_manipulability(q, model, data, tool_site_id)
-                #time.sleep(params.show_pose_duration)
+                time.sleep(params.show_pose_duration)
                 #print(f"Number of collisions detected: {n_cols}; inverse manipulability: {sigma_manip:.3f}")
 
                 # Compute the metric for the evaluation
@@ -166,13 +168,6 @@ def main():
 
             input("Press Enter to close the viewer…")
         else:
-            # Move the robot somewhere not centered in the world frame
-            t_w_b = np.array([0.3, 0.2, 0])
-            R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
-            A_w_b = np.eye(4)
-            A_w_b[:3, 3] = t_w_b
-            A_w_b[:3, :3] = R_w_b
-            set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
             # hard-coded joint configuration for testing
             q = np.radians([100, -94.96, 101.82, -95.72, -96.35, 180])
