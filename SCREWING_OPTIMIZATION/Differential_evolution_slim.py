@@ -1,3 +1,6 @@
+#QUESTO FILE è UNA VERSIONE SNELLA DI GLOBAL_REDUNDANCY: NON STAMPA NULLA, NON APRE MUJOCO
+#RITORNA SOLO IL VALORE DI TAU . è LA FUNZIONE NON  NOTA DELLA BAYESIAN
+# in particolare se la somma dei pose error è maggiore di 3 ( caso in cui non si riesce a raggiungere la posizione) allora tau sarà molto alto
 #!/usr/bin/env python3
 import mujoco
 import mujoco.viewer
@@ -28,12 +31,11 @@ NOTE: There are basically 2 options to set a good trade-off between accuracy and
 Modified for video creation with multiple target frames.
 '''
 
-def torque_value( model, data, tool_site_id, z_dir_des):
+def torque_value( model, data, tool_site_id, z_dir_des): # QUESTA FUNZIONE CALCOLA LE COPPIEAI GIUNTI 
     wrench=np.append(z_dir_des, np.zeros(3))  
     J = get_full_jacobian(model, data, tool_site_id)
-    #this function computes the torque value for the given Jacobian and wrench
     tau= J.T@ wrench
-    return tau.T@ tau
+    return np.sqrt(tau.T@ tau)
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
@@ -211,26 +213,29 @@ class GPUParallelOptimizer:
 
 def setup_gpu_context():
     """Setup GPU context and check available resources"""
-    print("Setting up GPU context...")
+    #print("Setting up GPU context...")
     
     # Check if GPU is available
     try:
         import GPUtil
         gpus = GPUtil.getGPUs()
         if gpus:
-            print(f"Found {len(gpus)} GPU(s):")
+           # print(f"Found {len(gpus)} GPU(s):")
             for i, gpu in enumerate(gpus):
-                print(f"  GPU {i}: {gpu.name} ({gpu.memoryTotal}MB)")
+              #  print(f"  GPU {i}: {gpu.name} ({gpu.memoryTotal}MB)")
+              pass
         else:
-            print("No GPUs found")
+           # print("No GPUs found")
+           pass
     except ImportError:
-        print("GPUtil not available, cannot check GPU status")
+       pass
+       #print("GPUtil not available, cannot check GPU status")
     
     # Set environment variables for GPU acceleration
     os.environ['MUJOCO_GL'] = 'egl'  # Use EGL for headless GPU rendering
     # os.environ['MUJOCO_GL'] = 'glfw'  # Alternative: GLFW for windowed mode
     
-    print("GPU context setup complete")
+   # print("GPU context setup complete")
 
 def setup_target_frames(model, data, ref_body_ids, target_poses):
     """Setup all target frames at their specified poses"""
@@ -238,25 +243,24 @@ def setup_target_frames(model, data, ref_body_ids, target_poses):
         set_body_pose(model, data, ref_body_ids[i], pos, [quat[3], quat[0], quat[1], quat[2]])
     mujoco.mj_forward(model, data)
 
-def main():
-    verbose = True
-    show_pose_duration = 3.0
+def func(x,y,z):
     total_tau=0
+    total_pose_error=0
     setup_gpu_context()
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     sys.path.append(base_dir)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e", "scene.xml")
 
     model = mujoco.MjModel.from_xml_path(xml_path)
-    model.vis.global_.offwidth = 1920
-    model.vis.global_.offheight = 1080
+    model.vis.global_.offwidth = 0
+    model.vis.global_.offheight = 0
 
     data = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
 
     n_workers = min(8, os.cpu_count())
     parallel_optimizer = GPUParallelOptimizer(model, n_workers=n_workers)
-    print(f"Using {n_workers} parallel workers for GPU acceleration")
+    
 
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
     
@@ -297,9 +301,7 @@ def main():
 
     floor_geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
 
-    print("\nGeoms list:")
-    for i in range(model.ngeom):
-        print(i, mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i))
+   
 
     # Define 3 target poses for the video
     target_poses = [
@@ -312,48 +314,37 @@ def main():
     q_seed = np.zeros(6)  # Seed for optimization
     q_start = np.radians([-8.38, -68.05, -138, -64, 90, -7.85])  # Pleasant starting configuration
 
-    with mujoco.viewer.launch_passive(model, data) as viewer:
+    
         # Setup initial robot configuration
-        print("Setting up initial scene...")
+    
         
         # Set base and tool body poses
-        model.body_pos[base_body_id] = [-0.3, -0.3, 0.15]
-        model.body_quat[base_body_id] = euler_to_quaternion(45, 0, 0, degrees=True)
-        model.body_pos[tool_body_id] = [0.1, 0.1, 0.25]
-        model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
+    model.body_pos[base_body_id] = [x,y,z]
+    model.body_quat[base_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
+    model.body_pos[tool_body_id] = [0.1, 0.1, 0.25]
+    model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
         
         # Set robot to starting configuration
-        data.qpos[:6] = q_start
+    data.qpos[:6] = q_start
         
         # Setup all target frames
-        setup_target_frames(model, data, ref_body_ids, target_poses)
+    setup_target_frames(model, data, ref_body_ids, target_poses)
         
         # Update visualization
-        mujoco.mj_forward(model, data)
-        viewer.sync()
+    mujoco.mj_forward(model, data)
         
-        print("Initial scene setup complete.")
-        print(f"Robot starting configuration: {np.round(np.degrees(q_start), 2)} degrees")
-        print(f"Number of target frames: {len(target_poses)}")
-        for i, (pos, quat) in enumerate(target_poses):
-            print(f"  Target {i+1}: pos={np.round(pos, 3)}, quat={np.round(quat, 3)}")
         
-        input("Press Enter to start optimization sequence...")
+    
 
         # Optimize for each target frame
-        for target_idx, (pos, quat) in enumerate(target_poses):
-            print(f"\n{'='*60}")
-            print(f"OPTIMIZING FOR TARGET {target_idx + 1} OF {len(target_poses)}")
-            print(f"{'='*60}")
+    for target_idx, (pos, quat) in enumerate(target_poses):
+           
             
             R_target = R.from_quat(quat).as_matrix()
             z_dir_des = R_target[:, 2].copy()
             elbow_pref = (joint_lims[3,0], joint_lims[3,0]+0.4*(joint_lims[3,1]-joint_lims[3,0]))
 
-            print(f"Target position: {np.round(pos, 3)}")
-            print(f"Target z-direction: {np.round(z_dir_des, 3)}")
-
-            print("\n[Global optimization: fast settings]")
+            
             start_time = time.time()
 
             def cost_wrap(q):
@@ -371,20 +362,20 @@ def main():
                 maxiter=250,
                 polish=False,
                 workers=1,
-                updating='deferred',
+                updating='immediate',
                 seed=42
             )
             q_global = result.x
             global_time = time.time() - start_time
-            print(f"Global search completed in {global_time:.2f} seconds")
+            
 
             # Update robot configuration and display
             data.qpos[:6] = q_global
             mujoco.mj_forward(model, data)
-            viewer.sync()
+            
 
             # Local refinement
-            print("[Local refinement: gradient-based polish]")
+            
             start_time = time.time()
             def local_cost(q):
                 return bioik_cost(q, model, data, tool_site_id, pos, z_dir_des, q_seed=q_global,
@@ -400,41 +391,28 @@ def main():
             )
             q_opt = res.x
             local_time = time.time() - start_time
-            print(f"Local refinement completed in {local_time:.2f} seconds")
+            
 
             # Update robot to final optimized configuration
             data.qpos[:6] = q_opt
             mujoco.mj_forward(model, data)
-            viewer.sync()
+            
 
-            # Display results
-            print(f"\nFinal configuration for target {target_idx + 1}:", np.round(q_opt, 3))
-            print("Tool site:", np.round(data.site_xpos[tool_site_id],3))
-            print("z_dir:", np.round(get_tool_z_direction(data, tool_site_id),3))
-            print("Pose cost (should be ~0):", np.sum(five_dof_error_with_sign(q_opt, model, data, tool_site_id, pos, z_dir_des)**2))
-            print("Inverse manipulability:", np.abs(1/manipulability(q_opt, model, data, tool_site_id)))
-            print("Inverse preferential manipulabilty:",pref_manipulability(q_opt, model, data, tool_site_id,z_dir_des))
-            print("Module of the torques:",torque_value(model, data, tool_site_id, z_dir_des))
+            # Display resultsm
+            
             total_tau=total_tau+torque_value(model, data, tool_site_id, z_dir_des)
-            print(f"Total optimization time: {global_time+local_time:.2f} seconds")
+            total_pose_error += np.sum(five_dof_error_with_sign(q_opt, model, data, tool_site_id, pos, z_dir_des)**2)
 
             # Hold pose for video
-            time.sleep(show_pose_duration)
+            
             
             # Update viewer
-            viewer.sync()
-
-        if verbose: 
-            print(f"\n{'='*60}")
-            print("OPTIMIZATION SEQUENCE COMPLETED")
-            print(f"{'='*60}")
-            print(f"Successfully optimized for {len(target_poses)} target frames")
-            print(f"Total torque value: {total_tau}")
-        input("Press Enter to close the viewer...")
+    
+   # if total_pose_error > 3:
+        #return 1e6
+    #else:
     return (total_tau)
+    
+   
 
-if __name__ == "__main__":
-    
-    
-   print("RISULTATO FINALE:", main())
     

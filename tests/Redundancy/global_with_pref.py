@@ -7,33 +7,8 @@ from scipy.optimize import differential_evolution, minimize
 import time, os, sys
 import threading
 
-'''
-This code allows to perform a global optimization of the redundancy problem in a 6-DOF robot arm.
-The method is based on the differential evolution algorithm, which is a global optimization algorithm (inspired by bioik).
-The optimization is performed in two steps:
-1. A global optimization is performed using the differential evolution algorithm, which is a population-based algorithm that explores the search space.
-2. A local refinement is performed using the L-BFGS-B algorithm, which is a gradient-based algorithm that refines the solution found by the global optimization.
-The cost function is defined as the sum of the following terms: 
-- Pose error: the error between the desired position and orientation of the tool and the actual position and orientation of the tool.
-- Joint displacement: the error between the current joint configuration and a seed configuration (e.g., zero configuration).
-- Joint limits: a penalty for violating joint limits.
-- Elbow preference: a penalty for violating the elbow preference (if defined).
-- Manipulability: a penalty for low manipulability (inverse manipulability).
-We do not introduce 'hard' constraints, but we use a cost function that penalizes the violation of the constraints.
 
-NOTE: There are basically 2 options to set a good trade-off between accuracy and speed of the optimization:
-1 => Reduce the weights and increase a little the population size and maxiter (the local effect will be more evident)
-2 => Increase the weights and reduce the population size and maxiter (the local effect will be less evident)
 
-Modified for video creation with multiple target frames.
-'''
-
-def torque_value( model, data, tool_site_id, z_dir_des):
-    wrench=np.append(z_dir_des, np.zeros(3))  
-    J = get_full_jacobian(model, data, tool_site_id)
-    #this function computes the torque value for the given Jacobian and wrench
-    tau= J.T@ wrench
-    return tau.T@ tau
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
@@ -78,14 +53,16 @@ def get_full_jacobian(model, data, tool_site_id):
     J = np.vstack([jacp, jacr])
     return J[:, :6]
 
-def manipulability(q, model, data, tool_site_id):
+def pref_manipulability(q, model, data, tool_site_id,z_dir_des):
     data.qpos[:6] = q
     mujoco.mj_forward(model, data)
     J = get_full_jacobian(model, data, tool_site_id)
+    f=np.append(z_dir_des, np.zeros(3))
     JJt = J @ J.T
+    JJt_pref=f.T @ JJt @ f
     if np.linalg.matrix_rank(JJt) < 6 or np.linalg.det(JJt) < 1e-12:
         return 1e6  # Return large value if near singularity (for inverse manipulability)
-    return -(np.sqrt(np.linalg.det(JJt)))
+    return -JJt_pref
 
 def geom_collision_penalty(q, model, data, robot_geom_ids, floor_geom_id=None, collision_weight=1e5):
     """
@@ -116,21 +93,8 @@ W_POSE = 1e10 # 1e12
 W_JOINT_DISP = 0
 W_LIMITS = 0 # 1e2
 W_ELBOW = 0
-W_MANIP = 1e3 # 1e4
+W_MANIP =  1e10
 W_ANTIALIGN = 1e4 # 1e3
-
-
-def pref_manipulability(q, model, data, tool_site_id,z_dir_des):
-    data.qpos[:6] = q
-    mujoco.mj_forward(model, data)
-    J = get_full_jacobian(model, data, tool_site_id)
-    f=np.append(z_dir_des, np.zeros(3))
-    JJt = J @ J.T
-    JJt_pref=f.T @ JJt @ f
-    if np.linalg.matrix_rank(JJt) < 6 or np.linalg.det(JJt) < 1e-12:
-        return 1e6  # Return large value if near singularity (for inverse manipulability)
-    return (1/JJt_pref)
-
 
 def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, joint_lims, elbow_pref=None,
                robot_geom_ids=None, floor_geom_id=None, collision_weight=1e5):
@@ -146,7 +110,7 @@ def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, join
         cost_elbow = (2 * np.abs(q[3] - 0.5*(eh + el)) - 0.5*(eh - el))**2
     else:
         cost_elbow = 0.0
-    manip = manipulability(q, model, data, tool_site_id)
+    pref_manip = pref_manipulability(q, model, data, tool_site_id, z_dir_des)
     collision_penalty = 0.0
     if robot_geom_ids is not None:
         collision_penalty = geom_collision_penalty(q, model, data, robot_geom_ids, floor_geom_id, collision_weight=collision_weight)
@@ -161,7 +125,7 @@ def bioik_cost(q, model, data, tool_site_id, target_pos, z_dir_des, q_seed, join
             W_JOINT_DISP * cost_joint_disp +
             W_LIMITS * cost_limits +
             W_ELBOW * cost_elbow +
-            W_MANIP * manip +
+            W_MANIP * pref_manip +
             collision_penalty +
             W_ANTIALIGN * anti_align_penalty)
     return cost
@@ -241,8 +205,8 @@ def setup_target_frames(model, data, ref_body_ids, target_poses):
 def main():
     verbose = True
     show_pose_duration = 3.0
-    total_tau=0
-    setup_gpu_context()
+
+    #setup_gpu_context()
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     sys.path.append(base_dir)
     xml_path = os.path.join(base_dir, "universal_robots_ur5e", "scene.xml")
@@ -254,7 +218,7 @@ def main():
     data = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
 
-    n_workers = min(8, os.cpu_count())
+    n_workers = min(8, os.cpu_count())  # Define n_workers based on available CPU cores
     parallel_optimizer = GPUParallelOptimizer(model, n_workers=n_workers)
     print(f"Using {n_workers} parallel workers for GPU acceleration")
 
@@ -317,7 +281,7 @@ def main():
         print("Setting up initial scene...")
         
         # Set base and tool body poses
-        model.body_pos[base_body_id] = [-0.3, -0.3, 0.15]
+        model.body_pos[base_body_id] = [-0.1, -0.1, 0.15]
         model.body_quat[base_body_id] = euler_to_quaternion(45, 0, 0, degrees=True)
         model.body_pos[tool_body_id] = [0.1, 0.1, 0.25]
         model.body_quat[tool_body_id] = euler_to_quaternion(0, 0, 0, degrees=True)
@@ -412,10 +376,7 @@ def main():
             print("Tool site:", np.round(data.site_xpos[tool_site_id],3))
             print("z_dir:", np.round(get_tool_z_direction(data, tool_site_id),3))
             print("Pose cost (should be ~0):", np.sum(five_dof_error_with_sign(q_opt, model, data, tool_site_id, pos, z_dir_des)**2))
-            print("Inverse manipulability:", np.abs(1/manipulability(q_opt, model, data, tool_site_id)))
-            print("Inverse preferential manipulabilty:",pref_manipulability(q_opt, model, data, tool_site_id,z_dir_des))
-            print("Module of the torques:",torque_value(model, data, tool_site_id, z_dir_des))
-            total_tau=total_tau+torque_value(model, data, tool_site_id, z_dir_des)
+            print("PREFERENTIAL manipulability:", np.abs(1/pref_manipulability(q_opt, model, data, tool_site_id,z_dir_des)))
             print(f"Total optimization time: {global_time+local_time:.2f} seconds")
 
             # Hold pose for video
@@ -429,12 +390,9 @@ def main():
             print("OPTIMIZATION SEQUENCE COMPLETED")
             print(f"{'='*60}")
             print(f"Successfully optimized for {len(target_poses)} target frames")
-            print(f"Total torque value: {total_tau}")
+            
         input("Press Enter to close the viewer...")
-    return (total_tau)
 
 if __name__ == "__main__":
-    
-    
-   print("RISULTATO FINALE:", main())
-    
+    main()
+ 

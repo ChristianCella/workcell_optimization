@@ -142,7 +142,6 @@ kernels = [
 ]
 
 # start the gaussian process and get the prediction of the function based on the initial training set
-
 gpr = GaussianProcessRegressor(kernels[1])
 gpr.fit(init_x.reshape(-1, 1), init_y)
 
@@ -226,8 +225,13 @@ for i in range (num_iters) :
     else :
 
         plt.scatter(x_dataset[i], y_dataset[i], c = 'green', s = dot_size)
+    
+    mean_curve, std_curve = GP.predict(x.reshape(-1, 1), return_std=True)
 
+    plt.plot(x, mean_curve, label='Surrogate (mean)', color='orange')
+    plt.fill_between(x, mean_curve - kappa * std_curve, mean_curve + kappa * std_curve,  color='orange', alpha=0.2, label='Confidence band')
 
+   
     plt.plot(x, z) # function
     plt.plot(x, total_acquisition_function) # acquisition function
     plt.xlabel('x = input', fontsize = 15)
