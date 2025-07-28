@@ -1,6 +1,6 @@
 #QUESTO FILE è UNA VERSIONE SNELLA DI GLOBAL_REDUNDANCY: NON STAMPA NULLA, NON APRE MUJOCO
 #RITORNA SOLO IL VALORE DI TAU . è LA FUNZIONE NON  NOTA DELLA BAYESIAN
-# in particolare se la somma dei pose error è maggiore di 3 ( caso in cui non si riesce a raggiungere la posizione) allora tau sarà molto alto
+#QUESTO è IL CASO IN CUI ABBIAMO SOLO UN FRAME ED OTTIMIZZIAMO SOLO X,Y
 #!/usr/bin/env python3
 import mujoco
 import mujoco.viewer

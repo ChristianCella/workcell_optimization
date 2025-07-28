@@ -1,10 +1,14 @@
-# --------------------------------------------christian.cella@polimi.it----------------------------------------------- #
-# --------------------academic year: 2022 - 2023, personal code: 10615676, ID number: 235974-------------------------- #
-
-# ____PhD PROGRAM: AI-ENHANCED ENGINEERING TOOLS FOR THE OPTIMAL DEPLOYMENT OF COLLABORATIVE ROBOTICS APPLICATIONS____ #
-# ____________________________________________________________________________________________________________________ #
-# how to handle out of reach coordinates? in differential evolution , i implemented a thing
-#that  if the coordinates are out of reach, the function returns a very high value
+'''
+QUESTO CODICE OTTIMIZZA LA POSIZIONE X,Y DELLA BASE DEL ROBOT, COME ACQUISITION FUNCTION USA UCB
+LA FUNZIONE HIDDEN_f CHIAMA LO SCRIPT #DE_XY.py CHE DPO UN PROCESSO DI OTTIMIZZAZIONE 
+RITORNA IL MODULO DELLE COPPIE NELLA CONFIGURAZIONE OTTIMIZZATA (SINGOLO FRAME NON TRE)
+N  è IL NUMERO  DI PUNTI UTILIZZATI PER ADDESTRARE IL GPR
+n è IL NUMERO DI PUNTI UTILIZZATI PER OGNI SINGOLA ITERAZIOEN
+LO SCRIPT RITORNA 3 GRAFICI , IL PRIMO è LA FUNZIONE VALUTATA NELLO SPAZIO X,Y, IL PUNTO ROSSO è L'OTTIMO
+IL SECONDO GRAFICO è IL VALORE DELLA FUNZIONE AD OGNI ITERAZIONE
+IL TERZO GRAFICO PLOTTA ANCHE IL BEST UP TO NOW
+KAPPA REGLOA L'ESPLORAZIOE E LO SFRUTTAMENTO
+'''
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
@@ -49,20 +53,12 @@ matplotlib.rc('xtick', labelsize = 15)
 matplotlib.rc('ytick', labelsize = 15)
 
 # _________________________________________ DEFINITION OF THE FUNCTIONS ______________________________________________ #
-
-# definition of the function
-
-#def target_function(x,y) :
-
-    #return func(x,y)
-
-
 def constraint_func1(x): # la base del robot deve essere dentro un cerchio di raggio radius centrato in 0
     
     return - (x[0]**2 + x[1]**2) + radius**2
 
 
-
+#definizione dell'acquisition function 
 def expected_improvement(X, GPR_model, best_y):
     
     if len(X.shape) == 1 :
@@ -84,18 +80,6 @@ def expected_improvement(X, GPR_model, best_y):
     
     return ei
     
-    """
-    if all_greater_than_zero:
-    
-        return ei
-    
-    else:
-        
-        print("MIAO")
-        return np.zeros(100)
-        
-    """
-
 """
 define the optimization function: I first apply the acquisition function to get the "best" points; then I take
 the first "anchor_number" points among the "n" I randomly generated on the domain
@@ -119,8 +103,6 @@ def optimize_acquisition(GPR_model, n, anchor_number, best_evaluation, x_inf, x_
     
     for anchor in selected_anchors :
 
-        # in "acq" store the acquisition function (UCB) evaluated at the i-th anchor point
-        
         acq = lambda anchor, GPR_model: expected_improvement(anchor, GPR_model, best_evaluation)
         
         """
@@ -161,24 +143,17 @@ def hidden_f_test(X): # questa è per il caso di sampling
 Main: the code allows to verify that the constraints can be imposed in a BAyesian scheme
 """
 
-# set the limits (constraints given by the text)
+#definizione spazio di sampling
 
 xmin = -0.5
 xmax = 0.5
 
-
-
-
 x_inf = np.array([xmin, xmin])
 x_sup = np.array([xmax, xmax])
 
-# Trade-off exploration-exploitation
-
-kappa = 0.5
-
 # number of random points, number of anchor points and number of iterations
 
-n = 100 
+n = 100 #numero punti valutati ad ogni singola iterazione
 anchor_number = 20
 num_iters = 100
 step_plot = 0.5
@@ -189,15 +164,11 @@ step_plot = 0.5
 radius = 0.5
 
 # Number of initial points for the training
-
-N = 100# we start with only one point selected randomly
-#generazione dei point
+N = 100 
 X_dataset=np.random.uniform(xmin, xmax, (N, 2))
-
-
 Y_dataset = hidden_f_test(X_dataset).reshape(-1, 1)
-#Y_dataset = hidden_f(X_dataset).reshape(-1, 1)
 #init_viewer(X_dataset[0,0], X_dataset[0,1], X_dataset[0,2])
+
 # creation and training of the initial GPR using the dataset above
 
 
@@ -263,7 +234,7 @@ zs = Y_dataset.flatten()
 # coord. del punto ottimo
 best_x, best_y, best_z = xs[best_idx], ys[best_idx], zs[best_idx]
 
-  # necessario per la proiezione 3-D
+
 import matplotlib
 matplotlib.use('Qt5Agg')     # oppure 'Agg' se non ti serve la finestra
 import matplotlib.pyplot as plt
