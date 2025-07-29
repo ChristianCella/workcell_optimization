@@ -154,7 +154,7 @@ class FastIKFlowSolver:
             project_root
             / "ikflow" / "ikflow" / "weights"
             / "ur5e_custom--Jul.22.2025_06-17PM"
-            / "ikflow-checkpoint-epoch-epoch=214.ckpt"
+            / "ikflow-checkpoint-epoch-epoch=216.ckpt"
         )
         lit = IkfLitModel.load_from_checkpoint(
             str(ckpt),
