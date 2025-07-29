@@ -12,7 +12,7 @@ The work is meant to be python-based, without the necessity to be enclosed in a 
 ---
 
 ### **Project structure** 🏗️ <a name="Structure"></a> 
-This project relies on utilities for mujoco ([link](https://github.com/ChristianCella/ur5e_utils_mujoco.git)) and an IK solver (link), as depicted in the following:
+This project relies on utilities for mujoco ([link](https://github.com/ChristianCella/ur5e_utils_mujoco.git)) and an IK solver ([link](https://github.com/ChristianCella/ikflow.git)), as depicted in the following:
 ```
 ├── ur5e_utils_mujoco/           # utilities for mujoco and ikflow 
     ├── ...
@@ -38,20 +38,32 @@ For what concerns [workcell_optimization](https://github.com/ChristianCella/work
 
 ### **Installation procedure** ▶️ <a name="Install"></a> 
 
-Craete a folder (for example 'robotic_conatct_operations') and clone the required packages:
+Create a folder (for example 'robotic_conatct_operations') and clone the required packages (```git clone ...```):
 
 ```
 https://github.com/ChristianCella/workcell_optimization.git
 https://github.com/ChristianCella/ur5e_utils_mujoco.git
-SOON AVAILABLE
+https://github.com/ChristianCella/ikflow.git
 ```
 
 open a terminal in the directory ```../workcell_optimization``` and create a virtual environment called ```.venv``` (if using Windows 11):
 
 ```
 py 3.10 -m venv .venv
+.venv\Scripts\activate
 ```
-and activate it from the terminal typing ```.venv\Scripts\activate``` (for Windows; if you need to deactivate it for some reason, type ```deactivate```). At this point, install all dependencies with ```pip install -r requirements.txt```. Remember to work on a branch, not on main! To do so, create a branch:
+At this point, install all dependencies with ```pip install -r requirements.txt```. Now, go to the directory of ikflow (from ```../workcell_optimization```, just do ```cd..``` and then ```cd ikflow```) and follow these steps:
+
+```
+py -3.10 -m venv venv
+venv\Scripts\activate
+pip install --upgrade pip
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+pip install pytorch-lightning wandb jrl-robots numpy tqdm
+pip install -e .
+```
+
+Remember to work on a branch, not on main! To do so, create a branch:
 
 ```
 git branch "desired_branch_name"
@@ -85,6 +97,31 @@ This folder contains the entry-level files for Bayesian Optimization.
 - [docs](https://github.com/ChristianCella/Screwdriving_MuJoCo/tree/main/bayesian_optimizers/docs): contains a pdf for some theory and a very simple code to understand the basics;
 - [custom](https://github.com/ChristianCella/Screwdriving_MuJoCo/tree/main/bayesian_optimizers/custom): some hand-made codes for more structured examples;
 - [botorch_based](https://github.com/ChristianCella/Screwdriving_MuJoCo/tree/main/bayesian_optimizers/botorch_based): these are some of the most advanced codes; more specifically, the implementations of TuRBO and SCBO, that you cna find at [this](https://botorch.org/) link on BoTorch. On this site there is also a lot of useful staff: take a look at it.
+
+---
+
+### **Troubleshooting** 🛠️ <a name="Troubleshooting"></a> 
+1. **General installation problems:**
+    If you experience any problem when installing packages, maybe it is beacuse you do not have the 'LongPathEnabled' option in your registry. To fix it, open your system registers (regedit) and navigate to
+    ```
+    Computer\HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\FileSystem
+    ```
+    At this point, go to the cell 'LongPathEnabled' and change the value from 0 to 1.
+2. **Numpy, torch and torchvision:**
+To check the CUDA version installed you can run the command
+    ```
+    nvidia-smi
+    ```
+    If you have no CUDA installed, you can access the following website and install the Toolkit:
+    - https://developer.nvidia.com/cuda-downloads
+
+    CUDA needs a specific version of torch and torchvision. Look at the following webiste to install the correct one:
+    - https://pytorch.org/get-started/locally/
+
+    In my case, since I dispose of CUDA 12.4, I have to run the following command:
+    ```bash
+    pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+    ```
 
 ---
 
