@@ -24,8 +24,7 @@ import mujoco.viewer
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
 from parameters import TxtUseCase
 parameters = TxtUseCase()
-from manage_tools import attach_tool_to_robot 
-from manage_targets import create_reference_frames
+from create_scene import create_reference_frames,  merge_robot_and_tool, inject_robot_tool_into_scene
 
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
@@ -39,12 +38,13 @@ def make_simulator(pieces_target_poses, local_wrenches):
 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
-    # Create the temporary scene with the frames
-    temp_xml_path = create_reference_frames(base_dir, "ur5e_utils_mujoco/scene.xml", len(pieces_target_poses))
-    print(f"Temporary XML file created at: {temp_xml_path}")
-
-    # Attach the tool to the robot
-    xml_path = attach_tool_to_robot(base_dir = base_dir, scene_filename = "temp_scene.xml", tool_filename="screwdriver.xml")
+    output_scene_filename = "final_scene.xml"
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    merged_robot_path = merge_robot_and_tool(base_dir=base_dir)
+    merged_scene_path = inject_robot_tool_into_scene(output_scene_filename=output_scene_filename ,base_dir=base_dir)
+    temp_xml_name = create_reference_frames(base_dir, "ur5e_utils_mujoco/" + output_scene_filename, len(pieces_target_poses))
+    xml_path = os.path.join(base_dir, "ur5e_utils_mujoco", temp_xml_name)
+    
     model = mujoco.MjModel.from_xml_path(xml_path)
     data  = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)

@@ -86,7 +86,7 @@ class FastIKFlowSolver:
             torch.backends.cudnn.deterministic = False
 
         # robot
-        urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e.urdf"
+        urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e" / "ur5e.urdf"
         with suppress_native_stderr():
 
             robot = Robot(
