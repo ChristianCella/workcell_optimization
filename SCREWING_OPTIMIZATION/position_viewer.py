@@ -61,7 +61,7 @@ def init_viewer(x0, y0, z0):
 
     # --- apro la finestra una volta sola, in passive mode ---
     _viewer = mujoco.viewer.launch_passive(_model, _data)
-    time.sleep(0.2)  # lascia un po’ di tempo al GLFW di inizializzarsi
+    input("Premi invio per iniziare...")
 
 def update_viewer(x, y, z):
     """Chiama questa funzione dopo ogni nuova valutazione x_next."""
