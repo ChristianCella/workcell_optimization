@@ -12,7 +12,7 @@ from scipy.spatial.transform import Rotation as R
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../scene_manager')))
 from parameters import TestIkFlow
 params = TestIkFlow()
-from manage_tools import attach_tool_to_robot
+from create_scene import create_reference_frames,  merge_robot_and_tool, inject_robot_tool_into_scene, add_instance
 
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../utils'))
 sys.path.append(base_dir)
@@ -23,14 +23,37 @@ from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
 def main():
 
-    # Path setup  
+    # Path setup 
+    tool_filename = "screwdriver.xml"
+    robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
+    output_scene_filename = "final_scene.xml"
+    obstacle_name = "screwing_plate.xml" 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
-    #sys.path.append(base_dir)
-    #xml_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene.xml")
-    xml_path = attach_tool_to_robot(base_dir=base_dir, tool_filename="screwdriver.xml")
+
+    # Create the robot + tool model
+    merged_robot_path = merge_robot_and_tool(tool_filename=tool_filename, base_dir=base_dir, output_robot_tool_filename=robot_and_tool_file_name)
+    
+    # Add the robot + tool to the scene
+    merged_scene_path = inject_robot_tool_into_scene(robot_tool_filename=robot_and_tool_file_name, 
+                                                     output_scene_filename=output_scene_filename, 
+                                                     base_dir=base_dir)
+    
+    # Add a piece for screwing
+    obstacle_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces", obstacle_name)
+    add_instance(
+        merged_scene_path,
+        obstacle_path,
+        merged_scene_path,
+        mesh_source_dir=os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces"),
+        mesh_target_dir=os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/assets")
+    )
+
+    # Create the reference frames
+    temp_xml_name = create_reference_frames(base_dir, "ur5e_utils_mujoco/" + output_scene_filename, 1)
+    model_path = os.path.join(base_dir, "ur5e_utils_mujoco", temp_xml_name)
 
     # Load MuJoCo model
-    model = mujoco.MjModel.from_xml_path(str(xml_path))
+    model = mujoco.MjModel.from_xml_path(str(model_path))
     data  = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
 
@@ -39,11 +62,11 @@ def main():
     base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, 'tool_site')
-    screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "screw_top")
+    screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
 
     # Set robot base (matrix A^w_b)
-    t_w_b = np.array([0, 0, 0.2])
-    R_w_b = R.from_euler('XYZ', [np.radians(45), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+    t_w_b = np.array([0.2, 0.2, 0.2])
+    R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
     A_w_b = np.eye(4)
     A_w_b[:3, 3] = t_w_b
     A_w_b[:3, :3] = R_w_b
@@ -58,7 +81,7 @@ def main():
     set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
     # Fixed transformation 'tool top (t1) => tool tip (t)'
-    t_t1_t = np.array([0, 0.0, 0.26])
+    t_t1_t = np.array([0, 0.0, 0.31])
     R_t1_t = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
     A_t1_t = np.eye(4)
     A_t1_t[:3, 3] = t_t1_t
@@ -72,7 +95,7 @@ def main():
     theta_w_p_x_0 = np.radians(180)
     theta_w_p_y_0 = np.radians(0)
     theta_w_p_z_0 = np.radians(45)
-    t_w_p = np.array([0.2, 0.2, 0.2]) # [0.2, 0.2, 0.2]
+    t_w_p = np.array([0.4, 0.4, 0.4]) # [0.2, 0.2, 0.2]
     R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
     A_w_p = np.eye(4)
     A_w_p[:3, 3] = t_w_p

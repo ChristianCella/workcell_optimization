@@ -12,7 +12,7 @@ sys.path.append(base_dir)
 # model_path = os.path.join(base_dir, "ur5e_utils_mujoco/empty_environment.xml")
 # model_path = os.path.join(base_dir, "ur5e_utils_mujoco/obstacles/cube.xml")
 # model_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_tool/screwdriver.xml")
-model_path = os.path.join(base_dir, "ur5e_utils_mujoco/Pieces/screwing_plate.xml")
+model_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_tool/screwdriver.xml")
 
 # Load the model
 model = mujoco.MjModel.from_xml_path(model_path)

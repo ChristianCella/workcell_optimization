@@ -24,7 +24,7 @@ import mujoco.viewer
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
 from parameters import TxtUseCase
 parameters = TxtUseCase()
-from create_scene import create_reference_frames,  merge_robot_and_tool, inject_robot_tool_into_scene
+from create_scene import create_reference_frames,  merge_robot_and_tool, inject_robot_tool_into_scene, add_instance
 
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
@@ -36,28 +36,49 @@ from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 # ! Wrapper for the simulation
 def make_simulator(pieces_target_poses, local_wrenches):
 
+    # Path setup 
+    tool_filename = "screwdriver.xml"
+    robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
+    output_scene_filename = "final_scene.xml"
+    obstacle_name = "screwing_plate.xml" 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
-    output_scene_filename = "final_scene.xml"
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-    merged_robot_path = merge_robot_and_tool(base_dir=base_dir)
-    merged_scene_path = inject_robot_tool_into_scene(output_scene_filename=output_scene_filename ,base_dir=base_dir)
-    temp_xml_name = create_reference_frames(base_dir, "ur5e_utils_mujoco/" + output_scene_filename, len(pieces_target_poses))
-    xml_path = os.path.join(base_dir, "ur5e_utils_mujoco", temp_xml_name)
+    # Create the robot + tool model
+    merged_robot_path = merge_robot_and_tool(tool_filename=tool_filename, base_dir=base_dir, output_robot_tool_filename=robot_and_tool_file_name)
     
-    model = mujoco.MjModel.from_xml_path(xml_path)
+    # Add the robot + tool to the scene
+    merged_scene_path = inject_robot_tool_into_scene(robot_tool_filename=robot_and_tool_file_name, 
+                                                     output_scene_filename=output_scene_filename, 
+                                                     base_dir=base_dir)
+    
+    # Add a piece for screwing
+    obstacle_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces", obstacle_name)
+    add_instance(
+        merged_scene_path,
+        obstacle_path,
+        merged_scene_path,
+        mesh_source_dir=os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces"),
+        mesh_target_dir=os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/assets")
+    )
+
+    # Create the reference frames
+    temp_xml_name = create_reference_frames(base_dir, "ur5e_utils_mujoco/" + output_scene_filename, len(pieces_target_poses))
+    model_path = os.path.join(base_dir, "ur5e_utils_mujoco", temp_xml_name)
+    
+    model = mujoco.MjModel.from_xml_path(model_path)
     data  = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
 
     # Get body/site IDs
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
+    piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "screw_plate")
     ref_body_ids = []
     for i in range(len(pieces_target_poses)):
         ref_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"reference_target_{i+1}")
         ref_body_ids.append(ref_body_id)
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
-    screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "screw_top")
+    screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
 
     #! This method is run for every chromosome of a certain generation, for all generations
     def run_simulation(params: np.ndarray) -> float:
@@ -73,6 +94,14 @@ def make_simulator(pieces_target_poses, local_wrenches):
         A_w_b[:3, :3] = R_w_b
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
+        # Set the piece in the environment (matrix A^w_p)
+        t_w_p = np.array([-0.2, -0.2, 0])
+        R_w_p = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+        A_w_p = np.eye(4)
+        A_w_p[:3, 3] = t_w_p
+        A_w_p[:3, :3] = R_w_p
+        set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
+
         # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
         #! Fixed, for the moment
         t_ee_t1 = np.array([0, 0.15, 0])
@@ -83,7 +112,7 @@ def make_simulator(pieces_target_poses, local_wrenches):
         set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
         # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
-        t_t1_t = np.array([0, 0.0, 0.26])
+        t_t1_t = np.array([0, 0.0, 0.33])
         R_t1_t = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
         A_t1_t = np.eye(4)
         A_t1_t[:3, 3] = t_t1_t
@@ -141,7 +170,7 @@ def make_simulator(pieces_target_poses, local_wrenches):
                 sols_ok.append(sols_disc)
                 fk_ok.append(fk_disc)
 
-            # ! Ineference for the specific piece is over: determine the best configuration
+            # ! Inference for the specific piece is over: determine the best configuration
             sols_ok = torch.cat(sols_ok, dim=0)
             fk_ok = torch.cat(fk_ok,   dim=0)
             sols_np = sols_ok.cpu().numpy()
@@ -246,11 +275,11 @@ if __name__ == "__main__":
     dim = 2 # Number of dimensions of the search space (x_b, y_b)
     x0 = np.zeros(dim) # Starting 'mean' value mu
     sigma0 = 0.5
-    popsize = 3 # Number of chromosomes in the population
+    popsize = 5 # Number of chromosomes in the population
     max_gens = 4
     opts = {
         "popsize": popsize,
-        "bounds": [[-0.3, -0.3], [ 0.3,  0.3]],
+        "bounds": [[0.0, 0.0], [ 0.3,  0.3]],
         "verb_disp": 0,
     }
     es = cma.CMAEvolutionStrategy(x0, sigma0, opts)
@@ -325,12 +354,12 @@ if __name__ == "__main__":
                 best_configs_trend.append(final_best_configs)
                 best_gravity_trend.append(best_gravity_torques_gen[i_best])
                 best_external_trend.append(best_external_torques_gen[i_best])
-            else:
-                best_fitness_trend.append(best_fitness_trend[-1])
-                best_solutions.append(best_solutions[-1])
-                best_configs_trend.append(best_configs_trend[-1])
-                best_gravity_trend.append(best_gravity_trend[-1])
-                best_external_trend.append(best_external_trend[-1])
+            #else:
+            #    best_fitness_trend.append(best_fitness_trend[-1])
+            #    best_solutions.append(best_solutions[-1])
+            #    best_configs_trend.append(best_configs_trend[-1])
+            #    best_gravity_trend.append(best_gravity_trend[-1])
+            #    best_external_trend.append(best_external_trend[-1])
 
             #! In case that: the fitness does not improve for too long, the step size is too small, or others, stop the optimization
             if es.stop():
@@ -340,14 +369,16 @@ if __name__ == "__main__":
         res = es.result
         
         print("\nOptimization terminated:")
-        print(f"The best position of the base according to the algorithm is: {res.xbest}")
         print(f"The smaller fitness function according to the algorithm is: {res.fbest:.6f}")
-        print(f"The robot configurations associated to the best solutions are: {best_configs_trend[-1]}")
-        print(f"The best gravity torques associated to the best solutions are: {best_gravity_trend[-1]}")
-        print(f"The best external torques associated to the best solutions are: {best_external_trend[-1]}")
-        print(f"The best position of the base according to my logic is: {best_solutions[-1]}")       
-        print(f"The smaller fitness function according to my logic is: {best_fitness_trend[-1]:.6f}")
-        print(f"The robot configurations associated to the best solutions are: {best_configs_trend[-1]}")
+        if parameters.verbose:
+            print(f"The best position of the base according to the algorithm is: {res.xbest}")
+            print(f"The smaller fitness function according to the algorithm is: {res.fbest:.6f}")
+            print(f"The robot configurations associated to the best solutions are: {best_configs_trend[-1]}")
+            print(f"The best gravity torques associated to the best solutions are: {best_gravity_trend[-1]}")
+            print(f"The best external torques associated to the best solutions are: {best_external_trend[-1]}")
+            print(f"The best position of the base according to my logic is: {best_solutions[-1]}")       
+            print(f"The smaller fitness function according to my logic is: {best_fitness_trend[-1]:.6f}")
+            print(f"The robot configurations associated to the best solutions are: {best_configs_trend[-1]}")
 
         if viewer:
             input("It is now possible to visualize the layout of the workcell. press enter to continue…")
