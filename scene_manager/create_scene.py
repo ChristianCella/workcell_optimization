@@ -43,6 +43,30 @@ def create_reference_frames(base_dir, vanilla_scene, n_targets):
 
     return file_name
 
+def add_instance(base_scene_path: str, instance_path: str, output_path: str):
+    # Parse XML trees
+    base_tree = etree.parse(base_scene_path)
+    instance_tree = etree.parse(instance_path)
+
+    base_root = base_tree.getroot()
+    instance_root = instance_tree.getroot()
+
+    # Locate worldbodies
+    base_worldbody = base_root.find("worldbody")
+    instance_worldbody = instance_root.find("worldbody")
+
+    if base_worldbody is None or instance_worldbody is None:
+        raise RuntimeError("Both base and instance XMLs must contain a <worldbody> element.")
+
+    # Copy over all <body> elements from the instance
+    for body in instance_worldbody.findall("body"):
+        base_worldbody.append(copy.deepcopy(body))
+
+    # Write the merged result
+    base_tree.write(output_path, pretty_print=True)
+    return output_path
+
+
 def merge_robot_and_tool(
     base_dir="",
     robot_filename="ur5e.xml",
@@ -133,10 +157,25 @@ def inject_robot_tool_into_scene(
 
 if __name__ == "__main__":
 
+    tool_filename = "screwdriver.xml"
+    robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
     output_scene_filename = "final_scene.xml"
+    obstacle_name = "cube.xml"
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-    merged_robot_path = merge_robot_and_tool(base_dir=base_dir)
-    merged_scene_path = inject_robot_tool_into_scene(output_scene_filename=output_scene_filename ,base_dir=base_dir)
+
+    # Create the robot + tool model
+    merged_robot_path = merge_robot_and_tool(tool_filename=tool_filename, base_dir=base_dir, output_robot_tool_filename=robot_and_tool_file_name)
+
+    # Add the robot + tool to the scene
+    merged_scene_path = inject_robot_tool_into_scene(robot_tool_filename=robot_and_tool_file_name, 
+                                                     output_scene_filename=output_scene_filename, 
+                                                     base_dir=base_dir)
+    
+    # Add a piece/obstacle
+    obstacle_path = os.path.join(base_dir, "ur5e_utils_mujoco/obstacles", obstacle_name)
+    add_instance(merged_scene_path, obstacle_path, merged_scene_path)
+
+    # Create the reference frames
     temp_xml_name = create_reference_frames(base_dir, "ur5e_utils_mujoco/" + output_scene_filename, 1)
     model_path = os.path.join(base_dir, "ur5e_utils_mujoco", temp_xml_name)
 
