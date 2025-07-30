@@ -34,7 +34,7 @@ from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, 
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
 # ! Wrapper for the simulation
-def make_simulator(pieces_target_poses, local_wrenches):
+def make_simulator(local_wrenches):
 
     # Path setup 
     tool_filename = "screwdriver.xml"
@@ -62,8 +62,7 @@ def make_simulator(pieces_target_poses, local_wrenches):
     )
 
     # Create the reference frames
-    temp_xml_name = create_reference_frames(base_dir, "ur5e_utils_mujoco/" + output_scene_filename, len(pieces_target_poses))
-    model_path = os.path.join(base_dir, "ur5e_utils_mujoco", temp_xml_name)
+    model_path = os.path.join(base_dir, "ur5e_utils_mujoco", output_scene_filename)
     
     model = mujoco.MjModel.from_xml_path(model_path)
     data  = mujoco.MjData(model)
@@ -74,9 +73,10 @@ def make_simulator(pieces_target_poses, local_wrenches):
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
     piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "screw_plate")
     ref_body_ids = []
-    for i in range(len(pieces_target_poses)):
-        ref_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"reference_target_{i+1}")
-        ref_body_ids.append(ref_body_id)
+    for i in range(model.nbody):
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)
+        if name and name.startswith("hole_") and name.endswith("_frame_body"):
+            ref_body_ids.append(i)
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
     screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
 
@@ -95,7 +95,7 @@ def make_simulator(pieces_target_poses, local_wrenches):
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
         # Set the piece in the environment (matrix A^w_p)
-        t_w_p = np.array([-0.2, -0.2, 0])
+        t_w_p = np.array([-0.15, -0.15, 0])
         R_w_p = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
         A_w_p = np.eye(4)
         A_w_p[:3, 3] = t_w_p
@@ -130,7 +130,7 @@ def make_simulator(pieces_target_poses, local_wrenches):
         A_wl3_ee[:3, :3] = R_wl3_e
 
         # Pieces in the world (define A^w_pi) => this is also used to put the frame in space 
-        setup_target_frames(model, data, ref_body_ids, pieces_target_poses)
+        #setup_target_frames(model, data, ref_body_ids, pieces_target_poses)
 
         # Set the robot to a configuration called q0
         q0 = np.radians([100, -94.96, 101.82, -95.72, -96.35, 180])
@@ -143,17 +143,22 @@ def make_simulator(pieces_target_poses, local_wrenches):
         best_configs = []
         best_gravity_torques = [] # This will be removed
         best_external_torques = [] # This will be removed
-        for j in range(len(pieces_target_poses)): # ! For each piece to be screwed
+        for j in range(len(ref_body_ids)): # ! For each piece to be screwed
             if parameters.verbose: print(f"Solving IK for target frame {j}")
+
+            #Get the pose of the target 
+            posit = data.xpos[ref_body_ids[j]]  # shape: (3,)
+            rotm = data.xmat[ref_body_ids[j]].reshape(3, 3)
+            theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=False)
 
             #! Solve IK for the speficic piece with ikflow
             fast_ik_solver = FastIKFlowSolver() 
             sols_ok, fk_ok = [], []
             for i in range(parameters.N_disc): # 0, 1, 2, ... N_disc-1
-                theta_x_0, theta_y_0, theta_z_0 = R.from_quat(pieces_target_poses[j][1]).as_euler('XYZ', degrees=False)
+                
                 R_w_p_rotated = R.from_euler('XYZ', [theta_x_0, theta_y_0, theta_z_0 + i * 2 * np.pi / parameters.N_disc], degrees=False).as_matrix()
                 A_w_p_rotated = np.eye(4)
-                A_w_p_rotated[:3, 3] = pieces_target_poses[j][0]
+                A_w_p_rotated[:3, 3] = posit
                 A_w_p_rotated[:3, :3] = R_w_p_rotated
                 A_b_wl3 = np.linalg.inv(A_w_b) @ A_w_p_rotated @ np.linalg.inv(A_ee_t)@ np.linalg.inv(A_wl3_ee)
 
@@ -256,20 +261,13 @@ def make_simulator(pieces_target_poses, local_wrenches):
 if __name__ == "__main__":
 
     #! This will become a query to a database
-    pieces_target_poses = [
-        (np.array([0.2, 0.2, 0.2]), R.from_euler('XYZ',[180, 0, 0],True).as_quat()),
-        (np.array([-0.3, -0.2, 0.3]), R.from_euler('XYZ',[180, 0, 0],True).as_quat()),
-        #(np.array([0.4, -0.2, 0.6]), R.from_euler('XYZ',[0, 0, 0],True).as_quat()),
-    ]
     local_wrenches = [
         (np.array([0, 0, -30, 0, 0, -10])),
         (np.array([0, 0, -20, 0, 0, -5])),
-        #(np.array([0, 0, -30, 0, 0, -10])),
+        (np.array([0, 0, -30, 0, 0, -10])),
     ]
 
-    run_sim, model, data, base_body_id = make_simulator(
-        pieces_target_poses, local_wrenches
-    )
+    run_sim, model, data, base_body_id = make_simulator(local_wrenches)
 
     # Parameters of the genetic algorithm
     dim = 2 # Number of dimensions of the search space (x_b, y_b)
@@ -340,7 +338,7 @@ if __name__ == "__main__":
             if viewer: viewer.sync()
 
             # For each screw/piece, apply the best configuration found
-            for idx, (pos, quat) in enumerate(pieces_target_poses):
+            for idx in range(len(local_wrenches)):
                 data.qpos[:6] = final_best_configs[idx][:6].tolist()
                 mujoco.mj_forward(model, data)
                 if viewer: viewer.sync()
@@ -389,7 +387,7 @@ if __name__ == "__main__":
             input("Press Enter to visualize the best configurations for each piece…")
 
             norms = []
-            for idx, (pos, quat) in enumerate(pieces_target_poses):
+            for idx in range(len(local_wrenches)):
                 data.qpos[:6] = best_configs_trend[-1][idx][:6].tolist()
                 mujoco.mj_forward(model, data)
                 viewer.sync()

@@ -16,3 +16,10 @@ def get_world_wrench(R, w_l):
     R_full[:3, :3] = R
     R_full[3:, 3:] = R
     return R_full @ w_l
+
+if __name__ == "__main__":
+    theta_x = 180
+    theta_y = 0
+    theta_z = 0
+    q = euler_to_quaternion(theta_x, theta_y, theta_z, degrees=True)
+    print("Quaternion:", q)
