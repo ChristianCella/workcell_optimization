@@ -29,7 +29,7 @@ from create_scene import create_reference_frames,  merge_robot_and_tool, inject_
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
 import fonts
-from transformations import rotm_to_quaternion, get_world_wrench
+from transformations import rotm_to_quaternion, get_world_wrench, get_homogeneous_matrix
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, setup_target_frames
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
@@ -87,11 +87,7 @@ def make_simulator(local_wrenches):
         mujoco.mj_resetData(model, data)
 
         # Set the new robot base (matrix A^w_b)
-        t_w_b = np.array([float(params[0]), float(params[1]), 0])
-        R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
-        A_w_b = np.eye(4)
-        A_w_b[:3, 3] = t_w_b
-        A_w_b[:3, :3] = R_w_b
+        t_w_b, R_w_b, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0, 0, 0, 0)
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
         # Set the piece in the environment (matrix A^w_p)
@@ -160,9 +156,9 @@ def make_simulator(local_wrenches):
                 A_w_p_rotated = np.eye(4)
                 A_w_p_rotated[:3, 3] = posit
                 A_w_p_rotated[:3, :3] = R_w_p_rotated
-                A_b_wl3 = np.linalg.inv(A_w_b) @ A_w_p_rotated @ np.linalg.inv(A_ee_t)@ np.linalg.inv(A_wl3_ee)
+                A_b_wl3 = np.linalg.inv(A_w_b) @ A_w_p_rotated @ np.linalg.inv(A_ee_t) @ np.linalg.inv(A_wl3_ee)
 
-                # Craete the target pose for the IK solver (from robot base to wrist_link_3)
+                # Create the target pose for the IK solver (from robot base to wrist_link_3)
                 quat_pose = rotm_to_quaternion(A_b_wl3[:3, :3])
                 target = np.array([
                     A_b_wl3[0, 3], A_b_wl3[1, 3], A_b_wl3[2, 3],   # position
