@@ -18,15 +18,8 @@ base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(base_dir)
 
 #! Import the data
-dataset_dir = os.path.join(base_dir, "datasets")
-dataset_files = [f for f in os.listdir(dataset_dir) if f.startswith("final_dataset_") and f.endswith(".csv")]
-
-if not dataset_files:
-    raise FileNotFoundError("No training dataset found in the datasets directory.") 
-
-# Optional: sort to get the most recent one by timestamp in filename
-dataset_files.sort(reverse=True)
-dataset_csv_path = os.path.join(dataset_dir, dataset_files[0])
+dataset_csv_path = os.path.join(base_dir, "datasets/final_dataset_200_EI.csv")
+print(f"Using dataset: {dataset_csv_path}")
 
 df = pd.read_csv(dataset_csv_path)
 X_dataset = df[["x1", "x2"]].values

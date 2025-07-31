@@ -54,12 +54,30 @@ def UCB(X, GPR_model, kappa) :
 
     return ucb
 
+#? Second possible acquisition function => Expected Improvement (EI)
+def EI(X, GPR_model, best_y):
+    
+    if len(X.shape) == 1 :
+
+        X = np.expand_dims(X, axis = 0)
+    
+    mu, sigma = GPR_model.predict(X, return_std=True)
+    mu, sigma = mu.ravel(), sigma.ravel()
+    sigma = np.maximum(sigma, 1e-12)     # evita σ=0
+
+    # Obiettivo di MINIMIZZAZIONE
+    improvement = mu - best_y - 0.01
+    z = improvement / sigma
+    ei = improvement * norm.cdf(z) + sigma * norm.pdf(z)
+    return ei
+
 #! Wrapper for the optimization, relying on anchor points
-def optimize_acquisition(GPR_model, n, anchor_number, x_inf, x_sup,constraint,kappa):
+def optimize_acquisition(GPR_model, n, anchor_number, best_evaluation, x_inf, x_sup, constraint, kappa):
 
     # creation of the random points (n = 100 in the main)
     random_points = np.random.uniform(x_inf, x_sup, (n,2)) # I create a matrix (2) of random numbers from -10 to 10
-    acquisition_values = UCB(random_points, GPR_model, kappa) # I apply the UCB acquisition function to these points
+    #acquisition_values = UCB(random_points, GPR_model, kappa) # I apply the UCB acquisition function to these points
+    acquisition_values = EI(random_points, GPR_model, best_evaluation) # I apply the EI acquisition function to these points
 
     # keep the best N = "anchor_number" points
     best_predictions = np.argsort(acquisition_values)[0 : anchor_number] # find their positions
@@ -69,8 +87,9 @@ def optimize_acquisition(GPR_model, n, anchor_number, x_inf, x_sup,constraint,ka
     for anchor in selected_anchors :
 
         # in "acq" store the acquisition function (UCB) evaluated at the i-th anchor point        
-        acq = lambda anchor, GPR_model: UCB(anchor, GPR_model, kappa)
-        
+        #acq = lambda anchor, GPR_model: UCB(anchor, GPR_model, kappa)
+        acq = lambda anchor, GPR_model: EI(anchor, GPR_model, best_evaluation)
+
         """
         Real minimization procedure: the constraints DO NOT work on "Nelder-Mead" method, but, for example, 
         they work with SLSQP
@@ -79,7 +98,8 @@ def optimize_acquisition(GPR_model, n, anchor_number, x_inf, x_sup,constraint,ka
         optimized_points.append(result.x)
 
     optimized_points = np.array(optimized_points)
-    optimized_acquisition_values = UCB(optimized_points, GPR_model, kappa) # get K_RBF of all the opt. points
+    #optimized_acquisition_values = UCB(optimized_points, GPR_model, kappa) # get K_RBF of all the opt. points
+    optimized_acquisition_values = EI(optimized_points, GPR_model, best_evaluation)
     best = np.argsort(optimized_acquisition_values)[0]
     
     # The "x_next" is the tentative point taht will respect the constraints   
@@ -106,7 +126,7 @@ xmin = -0.5
 xmax = 0.5
 x_inf = np.array([xmin, xmin])
 x_sup = np.array([xmax, xmax])
-training_samples = 300
+training_samples = 50
 kappa = 0.1
 n = 500 
 anchor_number = 100
@@ -114,12 +134,11 @@ num_iters = 200
 step_plot = 0.5
 radius = 0.5
 verbose = True
-need_training = False
+need_training = True
  
 #! If the dataset has not been generated yet => train the GP
 if need_training:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dataset_csv_path = os.path.join(base_dir, "datasets", f"training_dataset_{timestamp}.csv") # Unique dataset name
+    dataset_csv_path = os.path.join(base_dir, "datasets", f"training_dataset_{training_samples}.csv") # Unique dataset name
     time_start = time.time()
     X_dataset = np.random.uniform(xmin, xmax, (training_samples, 2))
     Y_dataset = hidden_f_test(X_dataset).reshape(-1, 1)
@@ -131,15 +150,7 @@ if need_training:
 
 else:
     # Load dataset from a fixed or most recent CSV file
-    dataset_dir = os.path.join(base_dir, "datasets")
-    dataset_files = [f for f in os.listdir(dataset_dir) if f.startswith("training_dataset_") and f.endswith(".csv")]
-    
-    if not dataset_files:
-        raise FileNotFoundError("No training dataset found in the datasets directory.") 
-
-    # Optional: sort to get the most recent one by timestamp in filename
-    dataset_files.sort(reverse=True)
-    dataset_csv_path = os.path.join(dataset_dir, dataset_files[0])
+    dataset_csv_path = os.path.join(base_dir, "datasets/training_dataset_300.csv")
     
     if verbose: print(f"Loading dataset from: {dataset_csv_path}")
     
@@ -160,9 +171,9 @@ for i in range(num_iters): # 0, 1, ..., num_iters-1
 
     constraint = [{'type': 'ineq', 'fun': constraint_func1}]
    
-   # Get the new "tentative" point  
+    # Get the new "tentative" point  
     best_evaluation = np.min(Y_dataset)
-    x_next = optimize_acquisition(GP, n, anchor_number, x_inf, x_sup, constraint, kappa)
+    x_next = optimize_acquisition(GP, n, anchor_number, best_evaluation, x_inf, x_sup, constraint, kappa)
     
     # Evaluate the new candidate (Perform a new simulation)   
     eval_x_next = hidden_f(x_next).reshape(-1, 1)
@@ -185,15 +196,14 @@ for i in range(num_iters): # 0, 1, ..., num_iters-1
     GP.fit(X_dataset, Y_dataset)
 
 # Save the dataset in a csv file
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-dataset_csv_path = os.path.join(base_dir, "datasets", f"final_dataset_{timestamp}.csv")
+dataset_csv_path = os.path.join(base_dir, "datasets", f"final_dataset_{num_iters}_EI_2.csv")
 df = pd.DataFrame(np.hstack((X_dataset, Y_dataset)), columns=["x1", "x2", "y"])
 df.to_csv(dataset_csv_path, index=False)
 if verbose:
     print(f"Final dataset saved to: {dataset_csv_path}")
 
 # Save the history of evaluations
-history_csv_path = os.path.join(base_dir, "datasets", f"history_{timestamp}.csv")
+history_csv_path = os.path.join(base_dir, "datasets", f"history_{num_iters}_EI_2.csv")
 df_history = pd.DataFrame({"iteration": range(1, len(y_history) + 1), "y": y_history, "best_so_far": best_sofar_hist})
 df_history.to_csv(history_csv_path, index=False)
 if verbose:
