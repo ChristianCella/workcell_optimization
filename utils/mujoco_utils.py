@@ -6,6 +6,13 @@ def set_body_pose(model, data, body_id, pos, quat):
     model.body_quat[body_id] = quat
     mujoco.mj_forward(model, data)
 
+def compute_jacobian(model, data, tool_site_id):
+    Jp = np.zeros((3, model.nv))
+    Jr = np.zeros((3, model.nv))
+    mujoco.mj_jacSite(model, data, Jp, Jr, tool_site_id)
+    Jac = np.vstack([Jp, Jr])[:, :6]
+    return Jac
+
 def get_collisions(model, data, verbose):
     # Step the simulator once so that contacts get populated
     mujoco.mj_step(model, data)

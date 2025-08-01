@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import logging
+import pandas as pd
 
 import torch
 
@@ -30,7 +31,7 @@ base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
 import fonts
 from transformations import rotm_to_quaternion, get_world_wrench, get_homogeneous_matrix
-from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, setup_target_frames
+from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
 # ! Wrapper for the simulation
@@ -80,82 +81,58 @@ def make_simulator(local_wrenches):
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
     screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
 
-    #! This method is run for every chromosome of a certain generation, for all generations
+    #! This method is run for every individual of a certain generation, for all generations
     def run_simulation(params: np.ndarray) -> float:
 
-        # This is fundamental
-        mujoco.mj_resetData(model, data)
+        mujoco.mj_resetData(model, data) #! Reset the simulation data
 
         # Set the new robot base (matrix A^w_b)
-        t_w_b, R_w_b, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0, 0, 0, 0)
+        _, _, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0, 0, 0, 0)
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
         # Set the piece in the environment (matrix A^w_p)
-        t_w_p = np.array([-0.15, -0.15, 0])
-        R_w_p = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
-        A_w_p = np.eye(4)
-        A_w_p[:3, 3] = t_w_p
-        A_w_p[:3, :3] = R_w_p
+        _, _, A_w_p = get_homogeneous_matrix(-0.15, -0.15, 0, 0, 0, 0)
         set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
         # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-        #! Fixed, for the moment
-        t_ee_t1 = np.array([0, 0.15, 0])
-        R_ee_t1 = R.from_euler('XYZ', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix()
-        A_ee_t1 = np.eye(4)
-        A_ee_t1[:3, 3] = t_ee_t1
-        A_ee_t1[:3, :3] = R_ee_t1
+        _, _, A_ee_t1 = get_homogeneous_matrix(0, 0.15, 0, 30, 0, 0)
         set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
         # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
-        t_t1_t = np.array([0, 0.0, 0.33])
-        R_t1_t = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
-        A_t1_t = np.eye(4)
-        A_t1_t[:3, 3] = t_t1_t
-        A_t1_t[:3, :3] = R_t1_t
+        _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.33, 0, 0, 0)
 
         # Update the position of the tool tip (Just for visualization purposes)
         A_ee_t = A_ee_t1 @ A_t1_t  # combine the two transformations
         set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
         # End-effector with respect to wrist3 (NOTE: this is always fixed)
-        t_wl3_ee = np.array([0, 0.1, 0])
-        R_wl3_e = R.from_euler('XYZ', [np.radians(-90), 0, 0], degrees=False).as_matrix()
-        A_wl3_ee = np.eye(4)
-        A_wl3_ee[:3, 3] = t_wl3_ee
-        A_wl3_ee[:3, :3] = R_wl3_e
-
-        # Pieces in the world (define A^w_pi) => this is also used to put the frame in space 
-        #setup_target_frames(model, data, ref_body_ids, pieces_target_poses)
+        _, _, A_wl3_ee = get_homogeneous_matrix(0, 0.1, 0, -90, 0, 0)
 
         # Set the robot to a configuration called q0
         q0 = np.radians([100, -94.96, 101.82, -95.72, -96.35, 180])
         data.qpos[:6] = q0.tolist()
         mujoco.mj_forward(model, data)
-        if parameters.activate_gui: viewer.sync() # ! refresh the scene to see the new chromosome encoding the layout
+        if parameters.activate_gui: viewer.sync()
 
         #! Optimization of redundancy
         norms = []
         best_configs = []
-        best_gravity_torques = [] # This will be removed
-        best_external_torques = [] # This will be removed
+        best_gravity_torques = [] 
+        best_external_torques = [] 
         for j in range(len(ref_body_ids)): # ! For each piece to be screwed
             if parameters.verbose: print(f"Solving IK for target frame {j}")
 
             #Get the pose of the target 
             posit = data.xpos[ref_body_ids[j]]  # shape: (3,)
             rotm = data.xmat[ref_body_ids[j]].reshape(3, 3)
-            theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=False)
+            theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=True)
 
             #! Solve IK for the speficic piece with ikflow
             fast_ik_solver = FastIKFlowSolver() 
             sols_ok, fk_ok = [], []
             for i in range(parameters.N_disc): # 0, 1, 2, ... N_disc-1
                 
-                R_w_p_rotated = R.from_euler('XYZ', [theta_x_0, theta_y_0, theta_z_0 + i * 2 * np.pi / parameters.N_disc], degrees=False).as_matrix()
-                A_w_p_rotated = np.eye(4)
-                A_w_p_rotated[:3, 3] = posit
-                A_w_p_rotated[:3, :3] = R_w_p_rotated
+                _, _, A_w_p_rotated = get_homogeneous_matrix(posit[0], posit[1], posit[2], theta_x_0, theta_y_0, theta_z_0 + i * 360 / parameters.N_disc)
                 A_b_wl3 = np.linalg.inv(A_w_b) @ A_w_p_rotated @ np.linalg.inv(A_ee_t) @ np.linalg.inv(A_wl3_ee)
 
                 # Create the target pose for the IK solver (from robot base to wrist_link_3)
@@ -173,7 +150,7 @@ def make_simulator(local_wrenches):
 
             # ! Inference for the specific piece is over: determine the best configuration
             sols_ok = torch.cat(sols_ok, dim=0)
-            fk_ok = torch.cat(fk_ok,   dim=0)
+            fk_ok = torch.cat(fk_ok, dim=0)
             sols_np = sols_ok.cpu().numpy()
             fk_np = fk_ok.cpu().numpy()
             cost = 1e12
@@ -210,8 +187,7 @@ def make_simulator(local_wrenches):
 
             else: #! No IK solution found, set the best configuration to the default one (all joints at 0)               
                 best_q = np.zeros(6)
-            #input(f"All the IK solutions for piece {j} have been computed. Press Enter to continue…") 
-            #               
+            
             # Udate the viewer with the best configuration found
             data.qpos[:6] = best_q.tolist()
             data.qvel[:] = 0  # clear velocities
@@ -219,20 +195,15 @@ def make_simulator(local_wrenches):
             data.ctrl[:] = 0  # (if using actuators, may help avoid torque pollution)
             mujoco.mj_forward(model, data)
             if parameters.activate_gui: viewer.sync()
-            time.sleep(3.0) # If this is not present, you will never have time to see also the 'optimal' config. for the final piece
+            if parameters.activate_gui: time.sleep(1.0) # If this is not present, you will never have time to see also the 'optimal' config. for the final piece
 
             # ! Compute the torques for the best configuration
-            Jp = np.zeros((3, model.nv))
-            Jr = np.zeros((3, model.nv))
-            mujoco.mj_jacSite(model, data, Jp, Jr, tool_site_id)
-            J6 = np.vstack([Jp, Jr])[:, :6]
-
+            J = compute_jacobian(model, data, tool_site_id)
             tau_g = data.qfrc_bias[:6]
-            # tau_g = data.qfrc_bias[:6]
             R_tool_to_world = data.site_xmat[tool_site_id].reshape(3, 3) # Rotation tool => world
             R_world_to_tool = R_tool_to_world.T # Rotation world => tool
             world_wrench = get_world_wrench(R_world_to_tool, local_wrenches[j]) #! Wrench in world frame
-            tau_ext = J6.T @ world_wrench
+            tau_ext = J.T @ world_wrench
             tau_tot = tau_g + tau_ext
             if not np.array_equal(best_q, np.zeros(6)):
                 norms.append(np.linalg.norm(tau_tot)) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
@@ -256,6 +227,9 @@ def make_simulator(local_wrenches):
 #! Main
 if __name__ == "__main__":
 
+    # Directory to save data
+    save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
     #! This will become a query to a database
     local_wrenches = [
         (np.array([0, 0, -30, 0, 0, -10])),
@@ -266,14 +240,13 @@ if __name__ == "__main__":
     run_sim, model, data, base_body_id = make_simulator(local_wrenches)
 
     # Parameters of the genetic algorithm
-    dim = 2 # Number of dimensions of the search space (x_b, y_b)
-    x0 = np.zeros(dim) # Starting 'mean' value mu
-    sigma0 = 0.5
-    popsize = 5 # Number of chromosomes in the population
-    max_gens = 4
+    x0 = parameters.x0
+    sigma0 = parameters.sigma0
+    popsize = parameters.popsize
+    n_iter = parameters.n_iter
     opts = {
         "popsize": popsize,
-        "bounds": [[0.0, 0.0], [ 0.3,  0.3]],
+        "bounds": [[-0.3, -0.4], [0.0,  0.4]],
         "verb_disp": 0,
     }
     es = cma.CMAEvolutionStrategy(x0, sigma0, opts)
@@ -297,8 +270,8 @@ if __name__ == "__main__":
     starting_fitness = 1e12
     
     try:
-        for gen in range(max_gens): #! Until the maximum number of generations is reached
-            if parameters.verbose: print(f"Generation of chromosomes number: {gen}")
+        for gen in range(n_iter): #! Loop until the maximum number of generations is reached
+            print(f"Generation of chromosomes number: {gen}")
             sols = es.ask() # Generate a new population of chromosomes
 
             # Lists that will contain the results for this generation
@@ -314,8 +287,8 @@ if __name__ == "__main__":
                 best_gravity_torques_gen.append(best_gravity)
                 best_external_torques_gen.append(best_external)
 
-            print(f"For generation {gen} the fitnesses are: {fitnesses}, and the best fitness is: {min(fitnesses)}")
-            print(f"For generation {gen} the complete set of best configurations is: {best_configs}")
+            if parameters.verbose: print(f"For generation {gen} the fitnesses are: {fitnesses}, and the best fitness is: {min(fitnesses)}")
+            if parameters.verbose: print(f"For generation {gen} the complete set of best configurations is: {best_configs}")
 
             # Update the distribution mean, step size and covariance matrix
             es.tell(sols, fitnesses)
@@ -338,7 +311,6 @@ if __name__ == "__main__":
                 data.qpos[:6] = final_best_configs[idx][:6].tolist()
                 mujoco.mj_forward(model, data)
                 if viewer: viewer.sync()
-                # input(f"Press Enter to see the next piece configuration (piece {idx+1})…")
 
             # Custom implementation of 'keep track of the trend'
             if min(fitnesses) < starting_fitness:
@@ -348,12 +320,20 @@ if __name__ == "__main__":
                 best_configs_trend.append(final_best_configs)
                 best_gravity_trend.append(best_gravity_torques_gen[i_best])
                 best_external_trend.append(best_external_torques_gen[i_best])
-            #else:
-            #    best_fitness_trend.append(best_fitness_trend[-1])
-            #    best_solutions.append(best_solutions[-1])
-            #    best_configs_trend.append(best_configs_trend[-1])
-            #    best_gravity_trend.append(best_gravity_trend[-1])
-            #    best_external_trend.append(best_external_trend[-1])
+            else:
+                if best_fitness_trend:  # Only proceed if the list is non-empty
+                    best_fitness_trend.append(best_fitness_trend[-1])
+                    best_solutions.append(best_solutions[-1])
+                    best_configs_trend.append(best_configs_trend[-1])
+                    best_gravity_trend.append(best_gravity_trend[-1])
+                    best_external_trend.append(best_external_trend[-1])
+                else:
+                    print(f"The lists were empty. Appending None to proceed.")
+                    best_fitness_trend.append(starting_fitness)
+                    best_solutions.append(None)
+                    best_configs_trend.append(None)
+                    best_gravity_trend.append(None)
+                    best_external_trend.append(None)
 
             #! In case that: the fitness does not improve for too long, the step size is too small, or others, stop the optimization
             if es.stop():
@@ -361,50 +341,49 @@ if __name__ == "__main__":
 
         # Get the best across all generations
         res = es.result
-        
-        print("\nOptimization terminated:")
-        print(f"The smaller fitness function according to the algorithm is: {res.fbest:.6f}")
-        if parameters.verbose:
-            print(f"The best position of the base according to the algorithm is: {res.xbest}")
-            print(f"The smaller fitness function according to the algorithm is: {res.fbest:.6f}")
-            print(f"The robot configurations associated to the best solutions are: {best_configs_trend[-1]}")
-            print(f"The best gravity torques associated to the best solutions are: {best_gravity_trend[-1]}")
-            print(f"The best external torques associated to the best solutions are: {best_external_trend[-1]}")
-            print(f"The best position of the base according to my logic is: {best_solutions[-1]}")       
-            print(f"The smaller fitness function according to my logic is: {best_fitness_trend[-1]:.6f}")
-            print(f"The robot configurations associated to the best solutions are: {best_configs_trend[-1]}")
 
+        # Save all the data
+        df_fit = pd.DataFrame(best_fitness_trend, columns=["fitness"])
+        df_fit.to_csv(os.path.join(save_dir, "results/data", f"best_fitness.csv"), index=False)
+
+        df_x = pd.DataFrame(best_solutions, columns=["x", "y"])
+        df_x.to_csv(os.path.join(save_dir, "results/data", f"best_solutions.csv"), index=False)
+
+        print("\nOptimization terminated:")
+        #if parameters.verbose:
+        print(f"f_min cma-es: {res.fbest:.6f}; f_min hand computed: {best_fitness_trend[-1]:.6f}")
+        print(f"x_best cma-es: {res.xbest}; x_best hand computed {best_solutions[-1]}")
+        print(f"q_best for x_best: {best_configs_trend[-1]}")
+        print(f"tau_g at x_best: {best_gravity_trend[-1]}")
+        print(f"tau_ext at x_best: {best_external_trend[-1]}")
+                   
+        # Display the resulting configuration
         if viewer:
-            input("It is now possible to visualize the layout of the workcell. press enter to continue…")
+            input("Press enter to visualize the result ...")
             mujoco.mj_resetData(model, data)
             set_body_pose(model, data, base_body_id, [best_solutions[-1][0], best_solutions[-1][1], 0], rotm_to_quaternion(np.eye(3))) # ! NOTE: this is not always identity!
             mujoco.mj_forward(model, data)
-            viewer.sync()
-            input("Press Enter to visualize the best configurations for each piece…")
 
             norms = []
             for idx in range(len(local_wrenches)):
+                print(f"Layout for piece {idx+1}")
                 data.qpos[:6] = best_configs_trend[-1][idx][:6].tolist()
                 mujoco.mj_forward(model, data)
                 viewer.sync()
+
                 # ! Compute the torques for the best configuration
                 tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
-                Jp = np.zeros((3, model.nv))
-                Jr = np.zeros((3, model.nv))
-                mujoco.mj_jacSite(model, data, Jp, Jr, tool_site_id)
-                J6 = np.vstack([Jp, Jr])[:, :6]
+                J = compute_jacobian(model, data, tool_site_id)
 
                 tau_g = data.qfrc_bias[:6]
                 R_tool_to_world = data.site_xmat[tool_site_id].reshape(3, 3) # Rotation tool => world
                 R_world_to_tool = R_tool_to_world.T # Rotation world => tool
                 world_wrench = get_world_wrench(R_world_to_tool, local_wrenches[idx]) #! Wrench in world frame
-                tau_ext = J6.T @ world_wrench
+                tau_ext = J.T @ world_wrench
                 tau_tot = tau_g + tau_ext
                 norms.append(np.linalg.norm(tau_tot)) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
-                print(f"The gravity torques for piece {idx+1} are: {tau_g}")
-                print(f"The external torques for piece {idx+1} are: {tau_ext}")
                 input(f"Press Enter to see the next piece configuration (piece {idx+1})…")
-            print(f"The obtained fitness is {float(np.mean(norms))} for the best configurations found.")
+            print(f"f obtained testing the layout: {float(np.mean(norms))}")
                 
 
     finally:
