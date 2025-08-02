@@ -16,8 +16,8 @@ class TxtUseCase:
     N_samples: int = 30  # Samples per 'discretized' pose configuration
     N_disc: int = 90  # Number of discrete configurations to test (rotational sweep)
     show_pose_duration: int = 0.05  # Seconds to show each pose
-    activate_gui : bool = False  # Whether to activate the GUI for visualization
+    activate_gui : bool = True  # Whether to activate the GUI for visualization
     x0: np.ndarray = field(default_factory=lambda: np.zeros(2))  # initial mean mu
     sigma0 : float = 0.5  # initial std sigma
-    popsize: int = 5  # numbe rof individuals
-    n_iter: int = 50  # number of iterations
+    popsize: int = 10  # number of individuals
+    n_iter: int = 100  # number of iterations

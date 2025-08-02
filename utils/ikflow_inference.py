@@ -81,6 +81,7 @@ class FastIKFlowSolver:
     def _setup_solver(self):
         # choose device
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #self.device = torch.device("cpu")
         if self.device.type == "cuda":
             torch.backends.cudnn.benchmark = True
             torch.backends.cudnn.deterministic = False

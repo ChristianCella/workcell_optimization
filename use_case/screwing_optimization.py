@@ -34,6 +34,9 @@ from transformations import rotm_to_quaternion, get_world_wrench, get_homogeneou
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
+# Load a global model
+global_fast_ik_solver = FastIKFlowSolver()
+
 # ! Wrapper for the simulation
 def make_simulator(local_wrenches):
 
@@ -128,7 +131,7 @@ def make_simulator(local_wrenches):
             theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=True)
 
             #! Solve IK for the speficic piece with ikflow
-            fast_ik_solver = FastIKFlowSolver() 
+            #fast_ik_solver = FastIKFlowSolver() 
             sols_ok, fk_ok = [], []
             for i in range(parameters.N_disc): # 0, 1, 2, ... N_disc-1
                 
@@ -144,7 +147,7 @@ def make_simulator(local_wrenches):
                 tgt_tensor = torch.from_numpy(target.astype(np.float32))
 
                 # Solve the IK problem for the discretized pose
-                sols_disc, fk_disc = solve_ik_fast(tgt_tensor, N = parameters.N_samples, fast_solver=fast_ik_solver) # Find N solutions for this target
+                sols_disc, fk_disc = solve_ik_fast(tgt_tensor, N = parameters.N_samples, fast_solver=global_fast_ik_solver) # Find N solutions for this target
                 sols_ok.append(sols_disc)
                 fk_ok.append(fk_disc)
 
@@ -223,7 +226,6 @@ def make_simulator(local_wrenches):
 
     return run_simulation, model, data, base_body_id
 
-
 #! Main
 if __name__ == "__main__":
 
@@ -246,7 +248,7 @@ if __name__ == "__main__":
     n_iter = parameters.n_iter
     opts = {
         "popsize": popsize,
-        "bounds": [[-0.3, -0.4], [0.0,  0.4]],
+        "bounds": [[0.0, -0.4], [0.5,  0.4]],
         "verb_disp": 0,
     }
     es = cma.CMAEvolutionStrategy(x0, sigma0, opts)
@@ -274,6 +276,9 @@ if __name__ == "__main__":
             print(f"Generation of chromosomes number: {gen}")
             sols = es.ask() # Generate a new population of chromosomes
 
+            # Compute time for each generation
+            start_time = time.time()
+
             # Lists that will contain the results for this generation
             fitnesses = []
             best_configs = []
@@ -287,6 +292,8 @@ if __name__ == "__main__":
                 best_gravity_torques_gen.append(best_gravity)
                 best_external_torques_gen.append(best_external)
 
+            end_time = time.time()
+            print(f"Generation {gen} took {end_time - start_time:.2f} seconds to compute.")
             if parameters.verbose: print(f"For generation {gen} the fitnesses are: {fitnesses}, and the best fitness is: {min(fitnesses)}")
             if parameters.verbose: print(f"For generation {gen} the complete set of best configurations is: {best_configs}")
 
