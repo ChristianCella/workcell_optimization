@@ -154,8 +154,8 @@ x_sup = np.array([xmax, xmax])
 # number of random points, number of anchor points and number of iterations
 
 n = 100 #numero punti valutati ad ogni singola iterazione
-anchor_number = 20
-num_iters = 100
+anchor_number = 30
+num_iters = 500
 step_plot = 0.5
  
 
@@ -164,7 +164,7 @@ step_plot = 0.5
 radius = 0.5
 
 # Number of initial points for the training
-N = 100 
+N = 300
 X_dataset=np.random.uniform(xmin, xmax, (N, 2))
 Y_dataset = hidden_f_test(X_dataset).reshape(-1, 1)
 #init_viewer(X_dataset[0,0], X_dataset[0,1], X_dataset[0,2])
@@ -184,6 +184,7 @@ GP.fit(X_dataset, Y_dataset)
 # Start the loop procedure to get the final candidate
 y_history = [] 
 best_sofar_hist = [] 
+sigma_history = [] 
 # aggiorna il minimo cumulativo
 
 for i in range(num_iters) :
@@ -201,6 +202,8 @@ for i in range(num_iters) :
     y_history.append(float(eval_x_next)) 
     current_best = float(eval_x_next) if not best_sofar_hist else min(best_sofar_hist[-1], float(eval_x_next))
     best_sofar_hist.append(current_best)
+    
+
     # Print some useful numbers
 
     print('Iteration number : ' + str(i) + ')\n\n')
@@ -221,7 +224,8 @@ for i in range(num_iters) :
     #GP = GaussianProcessRegressor(kernel = ker.RationalQuadratic(), n_restarts_optimizer = 10)
     GP = GaussianProcessRegressor(kernel=kernel,normalize_y=True,alpha=1e-6, n_restarts_optimizer=10)
     GP.fit(X_dataset, Y_dataset)
- 
+    mu, sigma = GP.predict(x_next, return_std=True)
+    sigma_history.append(float(sigma))
 
 # plot dei risultati
 best_idx = np.argmin(Y_dataset)          
@@ -286,3 +290,13 @@ plt.tight_layout()
 plt.show()
 
 
+##plot incertezza
+plt.figure(figsize=(7,4))
+plt.plot(range(1, len(sigma_history)+1), sigma_history, marker='o', label='σ(x_next)')
+plt.xlabel('Iterazione')
+plt.ylabel('Incertezza (σ)')
+plt.title('Evoluzione dell’incertezza nel punto selezionato')
+plt.grid(True)
+plt.tight_layout()
+plt.legend()
+plt.show() 
