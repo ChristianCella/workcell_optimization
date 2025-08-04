@@ -44,11 +44,11 @@ def make_simulator(local_wrenches):
     tool_filename = "screwdriver.xml"
     robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
     output_scene_filename = "final_scene.xml"
-    obstacle_name = "screwing_plate.xml" 
+    obstacle_name = "table_grip.xml" 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
     # Create the robot + tool model
-    merged_robot_path = merge_robot_and_tool(tool_filename=tool_filename, base_dir=base_dir, output_robot_tool_filename=robot_and_tool_file_name)
+    _ = merge_robot_and_tool(tool_filename=tool_filename, base_dir=base_dir, output_robot_tool_filename=robot_and_tool_file_name)
     
     # Add the robot + tool to the scene
     merged_scene_path = inject_robot_tool_into_scene(robot_tool_filename=robot_and_tool_file_name, 
@@ -75,12 +75,13 @@ def make_simulator(local_wrenches):
     # Get body/site IDs
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
-    piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "screw_plate")
+    piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "table_grip")
     ref_body_ids = []
     for i in range(model.nbody):
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)
         if name and name.startswith("hole_") and name.endswith("_frame_body"):
             ref_body_ids.append(i)
+    print(f"The frames are: {ref_body_ids}")
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
     screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
 
@@ -236,6 +237,7 @@ if __name__ == "__main__":
     local_wrenches = [
         (np.array([0, 0, -30, 0, 0, -10])),
         (np.array([0, 0, -20, 0, 0, -5])),
+        (np.array([0, 0, -30, 0, 0, -10])),
         (np.array([0, 0, -30, 0, 0, -10])),
     ]
 
