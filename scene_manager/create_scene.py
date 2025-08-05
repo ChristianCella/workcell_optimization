@@ -83,7 +83,7 @@ def add_instance(base_scene_path: str, instance_path: str, output_path: str, mes
                         shutil.copyfile(src, dst)
                         print(f"Copied mesh: {src} -> {dst}")
                     except Exception as e:
-                        print(f"⚠️ Failed to copy mesh {mesh_file}: {e}")
+                        print(f"Failed to copy mesh {mesh_file}: {e}")
 
     # Copy <default> section (optional)
     instance_default = instance_root.find("default")
@@ -195,40 +195,46 @@ def inject_robot_tool_into_scene(
     scene_tree.write(output_scene_path, pretty_print=True)
     return output_scene_path
 
-
-if __name__ == "__main__":
-
-    tool_filename = "small_tool.xml"
-    robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
-    output_scene_filename = "final_scene.xml"
-    obstacle_name = "screwing_plate.xml"
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+def create_scene(tool_name, robot_and_tool_file_name, output_scene_filename, piece_name, base_dir):
 
     # Create the robot + tool model
-    merged_robot_path = merge_robot_and_tool(tool_filename=tool_filename, base_dir=base_dir, output_robot_tool_filename=robot_and_tool_file_name)
+    _ = merge_robot_and_tool(tool_filename=tool_name, base_dir=base_dir, output_robot_tool_filename=robot_and_tool_file_name)
 
-    # Add the robot + tool to the scene
+    # Add the robot + tool to the 'vanilla' scene
     merged_scene_path = inject_robot_tool_into_scene(robot_tool_filename=robot_and_tool_file_name, 
                                                      output_scene_filename=output_scene_filename, 
                                                      base_dir=base_dir)
     
-    # Add a simple obstacle
-    #obstacle_path = os.path.join(base_dir, "ur5e_utils_mujoco/simple_obstacles", obstacle_name)
-    #add_instance(merged_scene_path, obstacle_path, merged_scene_path)
-
-    # Add a piece for screwing
-    obstacle_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces", obstacle_name)
+    # Add another instance (i.e. piece for screwing, cockpit)
+    obstacle_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces", piece_name)
     add_instance(
-    merged_scene_path,
-    obstacle_path,
-    merged_scene_path,
-    mesh_source_dir=os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces"),
-    mesh_target_dir=os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/assets")
-)
+        merged_scene_path,
+        obstacle_path,
+        merged_scene_path,
+        mesh_source_dir=os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces"),
+        mesh_target_dir=os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/assets")
+    )
 
-    # Create the reference frames
-    temp_xml_name = create_reference_frames(base_dir, "ur5e_utils_mujoco/" + output_scene_filename, 1)
-    model_path = os.path.join(base_dir, "ur5e_utils_mujoco", temp_xml_name)
+    # Define the path to the final scene
+    model_path = os.path.join(base_dir, "ur5e_utils_mujoco", output_scene_filename)
+
+    return model_path
+
+
+if __name__ == "__main__":
+
+    tool_filename = "screwdriver.xml"
+    robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
+    output_scene_filename = "final_scene.xml"
+    obstacle_name = "table_grip.xml"
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+
+    # Create the method defined above
+    model_path = create_scene(tool_name=tool_filename,
+                              robot_and_tool_file_name=robot_and_tool_file_name,
+                              output_scene_filename=output_scene_filename,
+                              piece_name=obstacle_name,
+                              base_dir=base_dir)
 
     # Load and render
     model = mujoco.MjModel.from_xml_path(model_path)
