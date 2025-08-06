@@ -15,7 +15,7 @@ def compute_jacobian(model, data, tool_site_id):
 
 def get_collisions(model, data, verbose):
     # Step the simulator once so that contacts get populated
-    mujoco.mj_step(model, data)
+    mujoco.mj_forward(model, data)
 
     if data.ncon == 0:
         if verbose: print("No collisions detected.")
