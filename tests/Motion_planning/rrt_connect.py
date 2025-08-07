@@ -25,18 +25,13 @@ def in_limits(q, limits):
     return np.all(q >= limits[:, 0]) and np.all(q <= limits[:, 1])
 
 def angdiff(a, b):
-    """Angle difference for revolute joints with limits typically present.
-    If your joints are strictly limited, simple subtraction is fine.
-    We keep wrap logic to be safe if limits are wide."""
+    """Angle difference for revolute joints with limits typically present."""
     d = (b - a + np.pi) % (2*np.pi) - np.pi
-    # If the joint is actually translational or tightly limited,
-    # this behaves like a bounded difference around zero.
     return d
 
 def weighted_distance(q1, q2, weights=None, revolute_mask=None):
     """Euclidean distance with optional joint weights and angle-wrap on revolutes."""
     if revolute_mask is None:
-        # Default: treat all as revolute for safety; change if you have slides.
         revolute_mask = np.ones_like(q1, dtype=bool)
     d = np.where(revolute_mask, angdiff(q1, q2), (q2 - q1))
     if weights is None:
@@ -67,13 +62,15 @@ class MuJoCoCollisionChecker:
         self.base_qpos = np.zeros(model.nq) if base_qpos is None else np.array(base_qpos, dtype=float).copy()
 
         if joint_ids is None:
-            # Default: plan over all joints (not typical). Better to specify.
             self.joint_ids = np.arange(model.njnt, dtype=int)
         else:
             self.joint_ids = np.array(joint_ids, dtype=int)
 
         # Map each planned joint to its qpos address (hinge/slide => 1 dof each)
         self.qpos_addr = self.model.jnt_qposadr[self.joint_ids]
+        # NEW: map planned joints to DOF columns (for Jacobians)
+        self.dof_mask = np.zeros(self.model.nv, dtype=bool)
+        self.dof_mask[self.model.jnt_dofadr[self.joint_ids]] = True
 
     def set_qpos_for_planned_joints(self, q):
         """Write planned joints into data.qpos on top of base_qpos."""
@@ -94,12 +91,10 @@ class MuJoCoCollisionChecker:
         if revolute_mask is None:
             revolute_mask = np.ones_like(q1, dtype=bool)
 
-        # Determine how many waypoints needed so that each joint changes by <= per_joint_step
         delta = np.where(revolute_mask, angdiff(q1, q2), (q2 - q1))
         max_delta = np.max(np.abs(delta))
         n_steps = max(1, int(math.ceil(max_delta / per_joint_step)))
 
-        # Sample along the segment, including the end
         for i in range(1, n_steps + 1):
             q = q1 + (i / n_steps) * delta
             if self.in_collision(q):
@@ -188,14 +183,12 @@ class RRTConnectPlanner:
         if weighted_distance(q_new, q_near, self.weights, self.revolute_mask) < self.min_progress:
             return 'Trapped', idx_near
 
-        # Respect limits and collisions along the small edge
         if not in_limits(q_new, self.limits):
             return 'Trapped', idx_near
         if not self.cc.edge_collision_free(q_near, q_new, self.per_joint_step, self.weights, self.revolute_mask):
             return 'Trapped', idx_near
 
         idx_new = tree.add(q_new, idx_near)
-        # Check proximity to target
         if weighted_distance(q_new, q_target, self.weights, self.revolute_mask) <= self.goal_tol:
             return 'Reached', idx_new
         
@@ -243,7 +236,6 @@ class RRTConnectPlanner:
                     # Build path: Ta root -> qa_new + reverse of Tb root -> goal
                     path_a = Ta.path_to_root(idx_a)       # start ... qa_new
                     path_b = Tb.path_to_root(idx_b)       # goal-side ... qa_new
-                    # path_b ends at qa_new; we need it reversed excluding qa_new duplicate
                     path_b_rev = list(reversed(path_b))   # qa_new ... goal
                     if len(path_b_rev) > 0:
                         path_b_rev = path_b_rev[1:]        # remove qa_new
@@ -262,7 +254,7 @@ class RRTConnectPlanner:
 
         return None, dict(iters=iters, time_s=time.time() - start_time, nodes_start=len(Ta.nodes), nodes_goal=len(Tb.nodes))
 
-#! Shortcut smoothing
+#! Densify / smooth / resample helpers
 def densify_path(path, target_points, weights=None, revolute_mask=None):
     """
     Interpolates between path waypoints to reach exactly `target_points` points.
@@ -272,7 +264,6 @@ def densify_path(path, target_points, weights=None, revolute_mask=None):
     if target_points <= len(path):
         return path
 
-    # Compute cumulative arc length along the path
     if revolute_mask is None:
         revolute_mask = np.ones_like(path[0], dtype=bool)
     if weights is None:
@@ -288,11 +279,9 @@ def densify_path(path, target_points, weights=None, revolute_mask=None):
         cum_length.append(cum_length[-1] + L)
     total_length = cum_length[-1]
 
-    # Target positions along the arc length
     new_points = [path[0]]
     for k in range(1, target_points-1):
         target_s = (k / (target_points-1)) * total_length
-        # Find which segment this lies in
         for i in range(len(seg_lengths)):
             if target_s <= cum_length[i+1]:
                 seg_ratio = (target_s - cum_length[i]) / seg_lengths[i]
@@ -315,14 +304,11 @@ def shortcut_smooth(path, cc: MuJoCoCollisionChecker, attempts=100,
     path = [p.copy() for p in path]
     n = len(path)
     for _ in range(attempts):
-        if n < 3:  # safety check in case path shrinks
+        if n < 3:
             break
-        # Pick two distinct waypoints with at least one waypoint between them
         i = np.random.randint(0, n - 2)
         j = np.random.randint(i + 2, n)
-        # Check if we can connect them directly
         if cc.edge_collision_free(path[i], path[j], per_joint_check_step, weights, revolute_mask):
-            # Replace intermediate points
             path = path[:i+1] + path[j:]
             n = len(path)
     return path
@@ -366,7 +352,6 @@ def resample_path_by_count(path, target_points, weights=None, revolute_mask=None
     out = [path[0]]
     for k in range(1, target_points-1):
         s = (k / (target_points-1)) * total
-        # find segment
         i = np.searchsorted(cum, s, side="right") - 1
         i = min(max(i, 0), len(seg_lengths)-1)
         t = (s - cum[i]) / (seg_lengths[i] if seg_lengths[i] > 0 else 1.0)
@@ -374,6 +359,150 @@ def resample_path_by_count(path, target_points, weights=None, revolute_mask=None
         out.append(q)
     out.append(path[-1])
     return out
+
+# ================= NEW: manipulability-aware optimization ===================
+
+def manipulability_yoshikawa(cc: MuJoCoCollisionChecker, q: np.ndarray, site_id: int) -> float:
+    """
+    Yoshikawa manipulability sqrt(det(J J^T)) at a site, using only planned DOFs.
+    """
+    model, data = cc.model, cc.data
+    cc.set_qpos_for_planned_joints(q)
+    mujoco.mj_forward(model, data)
+
+    jacp = np.zeros((3, model.nv))
+    jacr = np.zeros((3, model.nv))
+    mujoco.mj_jacSite(model, data, jacp, jacr, site_id)
+    J = np.vstack((jacp, jacr))[:, cc.dof_mask]   # (6, n_plan)
+
+    JJt = J @ J.T
+    # Robust determinant (could be near-singular)
+    try:
+        val = np.sqrt(max(np.linalg.det(JJt), 0.0))
+    except np.linalg.LinAlgError:
+        val = 0.0
+    return float(max(val, 1e-12))
+
+def path_length_cost(path, weights=None, revolute_mask=None):
+    return sum(
+        weighted_distance(path[k], path[k+1], weights, revolute_mask)
+        for k in range(len(path)-1)
+    )
+
+def smoothness_cost(path):
+    if len(path) < 3:
+        return 0.0
+    c = 0.0
+    for k in range(1, len(path)-1):
+        c += np.linalg.norm(path[k+1] - 2*path[k] + path[k-1])**2
+    return c
+
+def singularity_cost(cc: MuJoCoCollisionChecker, path, site_id: int, psi_eps=1e-4):
+    """
+    Sum of -log(manipulability + eps) along the path.
+    """
+    c = 0.0
+    for k in range(len(path)):
+        w = manipulability_yoshikawa(cc, path[k], site_id)
+        c += -math.log(w + psi_eps)
+    return c
+
+def total_path_cost(cc: MuJoCoCollisionChecker, path, weights, revolute_mask,
+                    site_id: int, alpha=1.0, beta=1e-2, gamma=1.0, psi_eps=1e-4):
+    return (
+        alpha * path_length_cost(path, weights, revolute_mask) +
+        beta  * smoothness_cost(path) +
+        gamma * singularity_cost(cc, path, site_id, psi_eps)
+    )
+
+def optimize_path_against_singularity(path, cc: MuJoCoCollisionChecker,
+                                      joint_limits: np.ndarray,
+                                      site_id: int,
+                                      weights=None, revolute_mask=None,
+                                      alpha=1.0, beta=1e-2, gamma=1.0,
+                                      step_init=0.03, step_shrink=0.5,
+                                      passes=4, iters_per_waypoint=20,
+                                      per_joint_check_step=0.05):
+    """
+    Local, collision-aware coordinate descent on intermediate waypoints only.
+    Accepts a tentative move iff both adjacent edges remain collision-free
+    and the total cost decreases.
+    """
+    path = [np.array(p, float).copy() for p in path]
+    if len(path) < 3:
+        return path
+
+    best_cost = total_path_cost(cc, path, weights, revolute_mask, site_id,
+                                alpha=alpha, beta=beta, gamma=gamma)
+
+    for _ in range(passes):
+        improved_any = False
+        for k in range(1, len(path)-1):  # keep endpoints
+            qk = path[k].copy()
+            step = step_init
+
+            for _ in range(iters_per_waypoint):
+                improved_here = False
+                for j in range(len(qk)):
+                    for sgn in (-1.0, +1.0):
+                        q_try = path[k].copy()
+                        q_try[j] += sgn * step
+                        q_try = clamp_to_limits(q_try, joint_limits)
+
+                        # Check feasibility of adjacent edges
+                        if not cc.edge_collision_free(path[k-1], q_try, per_joint_check_step, weights, revolute_mask):
+                            continue
+                        if not cc.edge_collision_free(q_try, path[k+1], per_joint_check_step, weights, revolute_mask):
+                            continue
+
+                        # Tentative cost
+                        old_qk = path[k]
+                        path[k] = q_try
+                        cost_try = total_path_cost(cc, path, weights, revolute_mask, site_id,
+                                                   alpha=alpha, beta=beta, gamma=gamma)
+                        if cost_try + 1e-10 < best_cost:
+                            best_cost = cost_try
+                            qk = q_try
+                            improved_here = True
+                            improved_any = True
+                        else:
+                            path[k] = old_qk  # revert
+
+                if not improved_here:
+                    step *= step_shrink
+                    if step < 1e-4:
+                        break
+
+            path[k] = qk
+
+        if not improved_any:
+            break
+
+    return path
+
+def workspace_length_simple(cc: MuJoCoCollisionChecker, path, site_id: int):
+    """
+    Computes straight-line distance between EE positions for each waypoint in path.
+    No interpolation; just FK at waypoints.
+    """
+    model, data = cc.model, cc.data
+
+    def site_pos(q):
+        cc.set_qpos_for_planned_joints(q)
+        mujoco.mj_forward(model, data)
+        return np.array(data.site_xpos[site_id], dtype=float)
+
+    total = 0.0
+    p_prev = site_pos(path[0])
+    for q in path[1:]:
+        p_curr = site_pos(q)
+        total += np.linalg.norm(p_curr - p_prev)
+        p_prev = p_curr
+
+    return total
+
+
+# ========================== /NEW optimization section ========================
 
 #! Test code
 if __name__ == "__main__":
@@ -390,7 +519,6 @@ if __name__ == "__main__":
     XML_PATH = create_scene(tool_name=tool_filename, robot_and_tool_file_name=robot_and_tool_file_name,
                               output_scene_filename=output_scene_filename, piece_name=piece_name, base_dir=base_dir)
 
-
     # Load model and create data
     model = mujoco.MjModel.from_xml_path(XML_PATH)
     data = mujoco.MjData(model)
@@ -403,19 +531,18 @@ if __name__ == "__main__":
     # Joint limits for planned joints
     jnt_range = model.jnt_range[plan_joint_ids].copy()  # shape (N_joints, 2)
 
-    # NOTE: not fundamental
+    # Handle unlimited joints (optional defaults)
     for i in range(n_joints):
         if model.jnt_limited[plan_joint_ids[i]] == 0:
-            # Example: allow +/- pi for hinges, +/- 0.5m for slides (customize as needed)
             if model.jnt_type[plan_joint_ids[i]] == mujoco.mjtJoint.mjJNT_HINGE:
                 jnt_range[i] = np.array([-np.pi, np.pi])
             elif model.jnt_type[plan_joint_ids[i]] == mujoco.mjtJoint.mjJNT_SLIDE:
                 jnt_range[i] = np.array([-0.5, 0.5])
 
-    # Boolean mask telling the planenr which joints are revolute
+    # Boolean mask telling the planner which joints are revolute
     revolute_mask = np.array([model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE for j in plan_joint_ids], dtype=bool)
 
-    # NOTE: as of now, all joints weigh the same
+    # Uniform weights (tune if you want workspace isotropy)
     weights = np.ones(n_joints, dtype=float)
 
     # Base pose for other (non-planned) joints
@@ -437,15 +564,15 @@ if __name__ == "__main__":
     cc = MuJoCoCollisionChecker(model, base_qpos=base_qpos, joint_ids=plan_joint_ids)
 
     # Joint configurations
-    q0 = np.array([1.93, -2.98, 1.41, -1.49, -1.56, 2.44])
+    q0       = np.array([1.93, -2.98, 1.41, -1.49, -1.56, 2.44])
     q_screw1 = np.array([-5.835175, 4.402239, -1.5875205, -1.7714313, -4.6415086, -6.1713014])
-    q_screw2  = np.array([2.1754599, 3.9184961, -2.262606, -4.605288, 5.1739826, 4.9312534])
-    q_screw3  = np.array([-3.39, 4.97, 1.46, 5.25, -1.1965, -0.91])
-    q_screw4  = np.array([1.36, -2.36, -0.94, -2.58, -5.29, 3.82])
+    q_screw2 = np.array([2.1754599, 3.9184961, -2.262606, -4.605288, 5.1739826, 4.9312534])
+    q_screw3 = np.array([-3.39, 4.97, 1.46, 5.25, -1.1965, -0.91])
+    q_screw4 = np.array([1.36, -2.36, -0.94, -2.58, -5.29, 3.82])
 
     # Define start and goal
-    q_start = clamp_to_limits(q_screw4, jnt_range)
-    q_goal  = clamp_to_limits(q0, jnt_range)
+    q_start = clamp_to_limits(q_screw1, jnt_range)
+    q_goal  = clamp_to_limits(q_screw2, jnt_range)
 
     # set the robot pose
     _, _, A_w_b = get_homogeneous_matrix(0.2664672921246696, 0.068153650497219, 0, 0, 0, 0)
@@ -473,16 +600,6 @@ if __name__ == "__main__":
     data.qpos[:6] = q_start.tolist()
     mujoco.mj_forward(model, data)
 
-    '''
-    # Launch the MuJoCo viewer
-    with mujoco.viewer.launch_passive(model, data) as viewer:
-        input("Press enter to start ...")
-        data.qpos[:6] = q_goal.tolist()
-        mujoco.mj_forward(model, data)
-        viewer.sync()
-        input("Press enter to continue ...")
-    '''
-
     # Quick sanity checks
     if cc.in_collision(q_start):
         print("Start is in collision; adjust q_start.")
@@ -494,7 +611,7 @@ if __name__ == "__main__":
         collision_checker=cc,
         joint_limits=jnt_range,
         step_size=0.15,                 # radians (approx joint metric)
-        per_joint_check_step=0.2,      # finer → safer but slower
+        per_joint_check_step=0.2,       # coarse for planning (OK if geometry is chunky)
         goal_tolerance=0.03,            # ~1.7 deg
         goal_bias=0.15,
         max_iters=500,
@@ -514,28 +631,34 @@ if __name__ == "__main__":
         if np.linalg.norm(path[0] - q_start) > np.linalg.norm(path[-1] - q_start):
             path.reverse()
 
-        path_pruned = prune_near_duplicates(path, min_step=1e-3,
-                                    weights=weights, revolute_mask=revolute_mask)
-        path_uniform = resample_path_by_count(path_pruned, target_points=60,
-                                      weights=weights, revolute_mask=revolute_mask)
-        
+        # ==================== NEW: singularity-aware optimization ====================
+        # TUNE alpha/beta/gamma as needed. Start with (1.0, 1e-2, 1.0).
         '''
-        # Smooth the path
-        path_smoothed = shortcut_smooth(
-            path,
-            cc,
-            attempts=150,
-            per_joint_check_step=0.02,
-            weights=weights,
-            revolute_mask=revolute_mask
+        path_opt = optimize_path_against_singularity(
+            path, cc, joint_limits=jnt_range, site_id=tool_site_id,
+            weights=weights, revolute_mask=revolute_mask,
+            alpha=1.0, beta=1e-2, gamma=1.0,
+            step_init=0.3, step_shrink=0.5,
+            passes=1, iters_per_waypoint=5,
+            per_joint_check_step=0.2   # finer during optimization
         )
-        ''' 
+        '''
+        # ============================================================================
+
+        # Your existing post-processing
+        path_pruned = prune_near_duplicates(path, min_step=1e-3,
+                                            weights=weights, revolute_mask=revolute_mask)
+        path_uniform = resample_path_by_count(path_pruned, target_points=60,
+                                              weights=weights, revolute_mask=revolute_mask)
+        
+        # Compute the path length
+        L_ee_simple = workspace_length_simple(cc, path_uniform, site_id=tool_site_id)
+        print(f"End-effector length (simple): {L_ee_simple:.4f} m")
 
         # Launch the MuJoCo viewer
         with mujoco.viewer.launch_passive(model, data) as viewer:
             input("Press enter to start ...")
             for i, q in enumerate(path_uniform):
-                #print(f"{i:02d}: {q}")
                 data.qpos[:6] = q.tolist()
                 mujoco.mj_forward(model, data)
                 viewer.sync()
