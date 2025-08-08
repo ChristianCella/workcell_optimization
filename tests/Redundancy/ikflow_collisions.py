@@ -63,6 +63,7 @@ def main():
     tool_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, 'tool_site')
     screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
+    wrist_3_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "wrist_3_link")
 
     # Set robot base (matrix A^w_b)
     t_w_b = np.array([0.2, 0.2, 0.2])
@@ -184,6 +185,7 @@ def main():
 
             print(f"Evaluating collisions and Jacobian on {len(sols_np)} samples lasted {time.time() - start_inference:.2f} seconds")
             print(f"The best configuration is: {np.round(best_q, 3)} with cost {best_cost:.3f}")
+            input("Press Enter to apply the best configuration…")
             # Optimization is over => apply the best configuration
             data.qpos[:6] = best_q.tolist()
             mujoco.mj_forward(model, data)
@@ -193,7 +195,7 @@ def main():
         else:
 
             # hard-coded joint configuration for testing
-            q = np.radians([100, -94.96, 101.82, -95.72, -96.35, 180])
+            q = np.array([0.9951, 4.5500, -1.5874, 0.5281, -4.0680, 2.2158])
             data.qpos[:6] = q.tolist()
             mujoco.mj_forward(model, data)
 
@@ -201,6 +203,12 @@ def main():
             n_cols = get_collisions(model, data, params.verbose)
             print(f"Collisions detected: {n_cols}")
             viewer.sync()
+
+            # Get the forward kinematics
+            pos = data.xpos[wrist_3_id]  # shape: (3,)
+            rot = data.xmat[wrist_3_id].reshape(3, 3)  # shape: (3, 3)
+            quat = rotm_to_quaternion(rot)
+            print(f"FK wrist 3: pos={np.round(pos, 3)}, quat={np.round(quat, 3)}")
 
             # Compute torques to compensate gravity
             gravity_comp = data.qfrc_bias[:6]
