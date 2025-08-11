@@ -85,7 +85,8 @@ class FastIKFlowSolver:
         if self.device.type == "cuda":
             torch.backends.cudnn.benchmark = True
             torch.backends.cudnn.deterministic = False
-
+ 
+        self.device = torch.device('cpu')  # instead of 'mps'
         # robot
         urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e" / "ur5e.urdf"
         with suppress_native_stderr():
@@ -124,8 +125,8 @@ class FastIKFlowSolver:
         suffix = f"_{DATASET_TAG_NON_SELF_COLLIDING}"
         ddir   = os.path.join(DATASET_DIR, f"{robot.name}{suffix}")
         samples_fp, poses_fp, *_ = get_dataset_filepaths(ddir, [DATASET_TAG_NON_SELF_COLLIDING])
-        samples_tr = torch.load(samples_fp).float().to(self.device)
-        poses_tr   = torch.load(poses_fp).float().to(self.device)
+        samples_tr = torch.load(samples_fp, map_location='cpu').float().to(self.device)
+        poses_tr   = torch.load(poses_fp, map_location='cpu').float().to(self.device)
         x_mean, x_std = samples_tr.mean(0), samples_tr.std(0)
         reorder = torch.tensor([0,1,2,6,3,4,5], device=self.device)
         poses_re = poses_tr[:, reorder]

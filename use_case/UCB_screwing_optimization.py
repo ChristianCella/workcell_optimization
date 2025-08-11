@@ -1,20 +1,47 @@
+'''
+This code implements the bayesian optimization for the XY position of the base of the robot.
+'''
+
 #!/usr/bin/env python3
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib
+import mpl_toolkits.mplot3d as tool
+import warnings
+import sys
+import time
 import os
+import pandas as pd
+from datetime import datetime
+import matplotlib    
+import matplotlib.pyplot as plt
+
+from sklearn.gaussian_process import GaussianProcessRegressor
+import sklearn.gaussian_process.kernels as ker
+import numpy as np
+from scipy.optimize import minimize
+from scipy.stats import norm
+from sklearn.gaussian_process.kernels import WhiteKernel, Matern
+from sklearn.preprocessing import StandardScaler
+
 os.environ["PYTORCH_MPS_DEVICE_DISABLED"] = "1"   # ← deve venire PRIMA di import torch
 import torch
 torch.set_default_device("cpu")       
-import sys
-import time
 import logging
-import pandas as pd
-
-
-
 #from workcell_optimization.tests.Redundancy.bio_ik2_custom import A_t1_t
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0' #! Avoid diplaying useless warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1' #! Avoid diplaying useless warnings
 
+
+warnings.filterwarnings('ignore')
+
+from sklearn.gaussian_process import GaussianProcessRegressor
+import sklearn.gaussian_process.kernels as ker
 import numpy as np
+from scipy.optimize import minimize
+from scipy.stats import norm
+from sklearn.gaussian_process.kernels import WhiteKernel, Matern
+
 from scipy.spatial.transform import Rotation as R
 
 import tensorflow as tf
@@ -24,6 +51,8 @@ tf.random.set_seed(444)
 import cma
 import mujoco
 import mujoco.viewer
+
+
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
 from parameters import TxtUseCase
@@ -40,7 +69,16 @@ from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 # Load a global model
 global_fast_ik_solver = FastIKFlowSolver()
 
-# ! Wrapper for the simulation
+
+'''
+---------------------------------------SIMULATION---------------------------------------
+This part of the code setup the simulation environment for the UR5e robot with a screwdriver tool.
+It returns:
+- Avarage of the total torques
+- The best configurations for each piece to be screwed
+- The best gravity torques
+- The best external torques
+'''
 def make_simulator(local_wrenches):
 
     # Path setup 
@@ -94,7 +132,7 @@ def make_simulator(local_wrenches):
         mujoco.mj_resetData(model, data) #! Reset the simulation data
 
         # Set the new robot base (matrix A^w_b)
-        _, _, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0, 0, 0, 0)
+        _, _, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0.1, 0, 0, 0)
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
         # Set the piece in the environment (matrix A^w_p)
@@ -215,7 +253,7 @@ def make_simulator(local_wrenches):
             if not np.array_equal(best_q, np.zeros(6)):
                 norms.append(np.linalg.norm(tau_tot)) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
             else:
-                norms.append(1e12) #! Ik not feasible => Drive the algorithm away from this configuration
+                norms.append(200) #! Ik not feasible => Drive the algorithm away from this configuration
 
             # Append the best configuration for this piece
             best_configs.append(best_q)
@@ -225,14 +263,114 @@ def make_simulator(local_wrenches):
 
         # All the pieces to be screwed have been processed
         fitness = float(np.mean(norms)) # sum(|| tau_tot ||_2) / N_pieces
-        if parameters.verbose: print(f"For generation {gen} the best configurations are: {best_configs}")
+        if parameters.verbose: print(f"For generation  the best configurations are: {best_configs}")
         return fitness, best_configs, best_gravity_torques, best_external_torques
 
     return run_simulation, model, data, base_body_id
+'''
+---------------------------------------PRELIMINARY FUNCTION FOR BAYESIAN OPTIMIZATION---------------------------------------'''
+matplotlib.rcParams['mathtext.fontset'] = 'cm' # 'cm' or 'stix'
+matplotlib.rcParams['font.family'] = 'STIXGeneral'
+matplotlib.rc('xtick', labelsize = 15)
+matplotlib.rc('ytick', labelsize = 15)
+matplotlib.rcParams['mathtext.fontset'] = 'cm' # 'cm' or 'stix'
+matplotlib.rcParams['font.family'] = 'STIXGeneral'
+matplotlib.rc('xtick', labelsize = 15)
+matplotlib.rc('ytick', labelsize = 15)
 
-#! Main
+''' The xy have to be inside a circle of radius R '''
+'''
+def constraint_func1(x):
+    return - (x[0]**2 + x[1]**2) + radius**2
+'''
+def kappa_var(iteration, kappa, it_center, num_iters):
+    cen = it_center * num_iters
+    return kappa / (1 + np.exp(0.1 * (iteration - cen)))
+
+def constraint_scaled(x_s):
+    # x_s è il punto in coordinate scalate (StandardScaler)
+    x_orig = scaler_X.inverse_transform([x_s])[0]
+    return - (x_orig[0]**2 + x_orig[1]**2) + radius**2
+
+''' Acquisition function for Bayesian Optimization: Upper Confidence Bound (UCB) '''
+def UCB(X, GPR_model, kappa,it_center, num_iters,iteration): 
+
+    if len(X.shape) == 1 :
+
+        X = np.expand_dims(X, axis = 0)
+
+    mean, std = GPR_model.predict(X, return_std = True) # this is actually implementing the Surrogate Function
+
+    # adjust the dimensions of the vectors
+    mean = mean.flatten()
+    std = std.flatten()
+    ucb = mean + kappa_var(iteration,kappa,it_center,num_iters) * std
+    #ucb=mean + kappa*std
+
+    return ucb
+
+'''Acquisition function for Bayesian Optimization: Expected Improvement (EI)'''
+def EI(X, GPR_model, best_y):
+    
+    if len(X.shape) == 1 :
+
+        X = np.expand_dims(X, axis = 0)
+    
+    mu, sigma = GPR_model.predict(X, return_std=True)
+    mu, sigma = mu.ravel(), sigma.ravel()
+    sigma = np.maximum(sigma, 1e-12)     # evita σ=0
+
+    # Obiettivo di MINIMIZZAZIONE
+    improvement = mu - best_y - 0.01
+    z = improvement / sigma
+    ei = improvement * norm.cdf(z) + sigma * norm.pdf(z)
+    return ei
+
+def optimize_acquisition(GPR_model, n, anchor_number, best_evaluation, x_inf, x_sup, constraint, kappa,iteration, it_center, num_iters):
+
+    # creation of the random points (n = 100 in the main)
+    random_points = np.random.uniform(x_inf, x_sup, (n,2)) # I create a matrix (2) of random numbers from -10 to 10
+    #acquisition_values = UCB(random_points, GPR_model, kappa) # I apply the UCB acquisition function to these points
+    acquisition_values = UCB(random_points, GPR_model, kappa,it_center,num_iters,iteration) # I apply the EI acquisition function to these points
+
+    # keep the best N = "anchor_number" points
+    best_predictions = np.argsort(acquisition_values)[0 : anchor_number] # find their positions
+    selected_anchors = random_points[best_predictions] # get the anchor points 
+    optimized_points = []
+    
+    for anchor in selected_anchors :
+
+        # in "acq" store the acquisition function (UCB) evaluated at the i-th anchor point        
+        #acq = lambda anchor, GPR_model: UCB(anchor, GPR_model, kappa)
+        acq = lambda anchor, GPR_model: UCB(anchor, GPR_model, kappa,it_center, num_iters,iteration)
+
+        """
+        Real minimization procedure: the constraints DO NOT work on "Nelder-Mead" method, but, for example, 
+        they work with SLSQP
+        """      
+        result = minimize(acq, anchor, GPR_model, method = 'SLSQP', bounds = ((x_inf[0], x_sup[0]), (x_inf[1], x_sup[1])),constraints=constraint)
+        optimized_points.append(result.x)
+
+    optimized_points = np.array(optimized_points)
+    #optimized_acquisition_values = UCB(optimized_points, GPR_model, kappa) # get K_RBF of all the opt. points
+    optimized_acquisition_values = UCB(optimized_points, GPR_model, kappa, it_center, num_iters, iteration) # get K_RBF of all the opt. points
+    best = np.argsort(optimized_acquisition_values)[0]
+    
+    # The "x_next" is the tentative point taht will respect the constraints   
+    x_next = optimized_points[best]
+
+    return np.expand_dims(x_next, axis = 0),optimized_acquisition_values[best] # return the best point and its acquisition value
+
+'''
+---------------------------------------MAIN FUNCTION---------------------------------------
+'''
+
+
 if __name__ == "__main__":
-
+ 
+    '''
+    ----------------------INIZIALIZATION-------------------------------------------------
+    '''
     # Directory to save data
     save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -246,19 +384,24 @@ if __name__ == "__main__":
 
     run_sim, model, data, base_body_id = make_simulator(local_wrenches)
 
-    # Parameters of the genetic algorithm
-    x0 = parameters.x0
-    sigma0 = parameters.sigma0
-    popsize = parameters.popsize
-    n_iter = parameters.n_iter
-    opts = {
-        "popsize": popsize,
-        "bounds": [[0.0, -0.4], [0.5,  0.4]],
-        "verb_disp": 0,
-    }
-    es = cma.CMAEvolutionStrategy(x0, sigma0, opts)
+    #Params for the Bayesian Optimization
+    xmin = -0.8
+    xmax = 0.8
+    x_inf = np.array([xmin, xmin])
+    x_sup = np.array([xmax, xmax])
+    training_samples = 300
+    kappa = 0.1 # UCB parameter
+    n = 500 
+    anchor_number = 100
+    num_iters = 201 
+    step_plot = 0.5
+    radius = 0.8
+    verbose = True
+    need_training = False
+    it_center=0.7
 
-    # ! Start the optimization loop
+
+
     viewer = None
 
     if parameters.activate_gui: # Activate GUI for visualization
@@ -275,130 +418,112 @@ if __name__ == "__main__":
     best_external_trend = []
     best_solutions = []
     starting_fitness = 1e12
+    '''
+    ---------------------------------------TRAINING GPR---------------------------------------
+'''
+    if need_training:
+        dataset_csv_path = os.path.join(base_dir, "datasets", f"training_dataset_{training_samples}.csv") # Unique dataset name
+        time_start = time.time()
+        X_dataset = np.random.uniform(xmin, xmax, (training_samples, 2))
+        Y_dataset=[]
+        for i in range(X_dataset.shape[0]):
+            #! Run the simulation for each point in the dataset
+            fitness, best_configs, best_gravity_torques, best_external_torques = run_sim(X_dataset[i])
+            Y_dataset.append(fitness)
+            print(f"Fitness for point {i+1}/{X_dataset.shape[0]}: {fitness:.3f}")
+        Y_dataset = np.array(Y_dataset).reshape(-1, 1)  
+        dataset = np.hstack((X_dataset, Y_dataset))
+        df = pd.DataFrame(dataset, columns=["x1", "x2", "y"])
+        df.to_csv(dataset_csv_path, index=False)
+        time_end = time.time()
+        if verbose: print(f"Time taken to generate the initial dataset: {(time_end - time_start)/60} minutes")
+
+    else:
+    # Load dataset from a fixed or most recent CSV file
+        dataset_csv_path = os.path.join(base_dir, "datasets/training_dataset_300.csv")
     
-    try:
-        for gen in range(n_iter): #! Loop until the maximum number of generations is reached
-            print(f"Generation of chromosomes number: {gen}")
-            sols = es.ask() # Generate a new population of chromosomes
+        if verbose: print(f"Loading dataset from: {dataset_csv_path}")
+    
+        df = pd.read_csv(dataset_csv_path)
+        X_dataset = df[["x1", "x2"]].values
+        Y_dataset = df[["y"]].values
 
-            # Compute time for each generation
-            start_time = time.time()
+    # creation and training of the initial GPR using the dataset above
+   # kernel = 1.5 * ker.Matern(length_scale=1, nu=2.5) # + WhiteKernel(noise_level=1.0)
+    kernel = 1.0 * Matern(length_scale=[1.0, 1.0],        
+                      length_scale_bounds=(1e-2, 1e2), 
+                      nu=2.5) \
+         + WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-6, 1e1))
+    
+    GP = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10, normalize_y=True)
+    scaler_X = StandardScaler()
+    X_scaled = scaler_X.fit_transform(X_dataset)   
+    GP.fit(X_scaled, Y_dataset)
 
-            # Lists that will contain the results for this generation
-            fitnesses = []
-            best_configs = []
-            best_gravity_torques_gen = []
-            best_external_torques_gen = []
-            for idx, sol in enumerate(sols): #! For each chromosome in the current generation
-                if parameters.verbose: print(f"    • chromosome {idx}: {sol}")
-                fit, best_config, best_gravity, best_external = run_sim(sol)
-                fitnesses.append(fit)
-                best_configs.append(best_config)
-                best_gravity_torques_gen.append(best_gravity)
-                best_external_torques_gen.append(best_external)
 
-            end_time = time.time()
-            print(f"Generation {gen} took {end_time - start_time:.2f} seconds to compute.")
-            if parameters.verbose: print(f"For generation {gen} the fitnesses are: {fitnesses}, and the best fitness is: {min(fitnesses)}")
-            if parameters.verbose: print(f"For generation {gen} the complete set of best configurations is: {best_configs}")
+    y_history = [] 
+    best_sofar_hist = [] 
+    UCB_Story=[] # List to store the UCB values for each iteration
+    '''
+-----------------------------INIZIO OPTIMIZZAZIONE BAYESIANA------------------------------------
+''' 
+    x_inf_s = scaler_X.transform([x_inf])[0]   # scala -0.5,0.5  →  ~(-1,1)
+    x_sup_s = scaler_X.transform([x_sup])[0]
 
-            # Update the distribution mean, step size and covariance matrix
-            es.tell(sols, fitnesses)
-            es.logger.add()
-            es.disp()
+    for i in range(num_iters): # 0, 1, ..., num_iters-1
+        x_inf_s = scaler_X.transform([x_inf])[0]   # scala -0.5,0.5  →  ~(-1,1)
+        x_sup_s = scaler_X.transform([x_sup])[0]
+        constraint = [{'type': 'ineq', 'fun': constraint_scaled}]
+   
+        # Get the new "tentative" point  
+        best_evaluation = np.min(Y_dataset)
+        #scala dei limiti
+        
+        x_next_s,UCB_S = optimize_acquisition(GP, n, anchor_number, best_evaluation, x_inf_s, x_sup_s, constraint, kappa,i,it_center, num_iters)
+        UCB_Story.append(UCB_S) # Store the UCB value for this iteration
+        x_next = scaler_X.inverse_transform(x_next_s).flatten() #lo riprto alla scala originale (-0.5, 0.5)
+        # Evaluate the new candidate (Perform a new simulation) 
+        eval_x_next, best_configs, best_gravity_torques, best_external_torques = run_sim(x_next)
+        
+        y_history.append(float(eval_x_next)) 
 
-            # Update robot base to best solution
-            i_best = int(np.argmin(fitnesses))
-            x_b, y_b  = sols[i_best][:2]
-            final_best_configs = best_configs[i_best] # Best joint configs for the current generation
-            if parameters.verbose: print(f"The best configurations for generation {gen} is: {final_best_configs}")
+        # If best_sofar_hist is empty, initialize it with the first evaluation, otherwise make a comparison
+        current_best = float(eval_x_next) if not best_sofar_hist else min(best_sofar_hist[-1], float(eval_x_next))
+        best_sofar_hist.append(current_best)
 
-            # Set the robot base to the best solution
-            set_body_pose(model, data, base_body_id, [x_b, y_b, 0], rotm_to_quaternion(np.eye(3))) # ! NOTE: this is not always identity!
-            mujoco.mj_forward(model, data)
-            if viewer: viewer.sync()
+        if verbose:
+         print(f"Tested candidate at iteration {i + 1}: {x_next}")
+         print(f"Evaluation associated to the candidate: {eval_x_next}")
 
-            # For each screw/piece, apply the best configuration found
-            for idx in range(len(local_wrenches)):
-                data.qpos[:6] = final_best_configs[idx][:6].tolist()
-                mujoco.mj_forward(model, data)
-                if viewer: viewer.sync()
+        # Augment the dataset
+        X_dataset = np.append(X_dataset, x_next.reshape(1,-1), axis = 0)
+        Y_new = np.array([[float(eval_x_next)]])
+        Y_dataset = np.append(Y_dataset, Y_new, axis = 0)
+        scaler_X = StandardScaler()
+        X_scaled = scaler_X.fit_transform(X_dataset)
+        #! Re-train the dataset
+        GP = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10, normalize_y=True)
+        GP.fit(X_scaled, Y_dataset)
+        '''
+------------------------------SALVATAGGIO DEI RISULTATI------------------------------------      '''
 
-            # Custom implementation of 'keep track of the trend'
-            if min(fitnesses) < starting_fitness:
-                starting_fitness = min(fitnesses)
-                best_fitness_trend.append(starting_fitness)
-                best_solutions.append((x_b, y_b))
-                best_configs_trend.append(final_best_configs)
-                best_gravity_trend.append(best_gravity_torques_gen[i_best])
-                best_external_trend.append(best_external_torques_gen[i_best])
-            else:
-                if best_fitness_trend:  # Only proceed if the list is non-empty
-                    best_fitness_trend.append(best_fitness_trend[-1])
-                    best_solutions.append(best_solutions[-1])
-                    best_configs_trend.append(best_configs_trend[-1])
-                    best_gravity_trend.append(best_gravity_trend[-1])
-                    best_external_trend.append(best_external_trend[-1])
-                else:
-                    print(f"The lists were empty. Appending None to proceed.")
-                    best_fitness_trend.append(starting_fitness)
-                    best_solutions.append(None)
-                    best_configs_trend.append(None)
-                    best_gravity_trend.append(None)
-                    best_external_trend.append(None)
 
-            #! In case that: the fitness does not improve for too long, the step size is too small, or others, stop the optimization
-            if es.stop():
-                break
+    # Save the dataset in a csv file
+    dataset_csv_path = os.path.join(base_dir, "datasets", f"final_dataset_{num_iters}_UCB_KVAR.csv")
+    df = pd.DataFrame(np.hstack((X_dataset, Y_dataset)), columns=["x1", "x2", "y"])
+    df.to_csv(dataset_csv_path, index=False)
+    if verbose:
+        print(f"Final dataset saved to: {dataset_csv_path}")
 
-        # Get the best across all generations
-        res = es.result
-
-        # Save all the data
-        df_fit = pd.DataFrame(best_fitness_trend, columns=["fitness"])
-        df_fit.to_csv(os.path.join(save_dir, "results/data", f"best_fitness.csv"), index=False)
-
-        df_x = pd.DataFrame(best_solutions, columns=["x", "y"])
-        df_x.to_csv(os.path.join(save_dir, "results/data", f"best_solutions.csv"), index=False)
-
-        print("\nOptimization terminated:")
-        #if parameters.verbose:
-        print(f"f_min cma-es: {res.fbest:.6f}; f_min hand computed: {best_fitness_trend[-1]:.6f}")
-        print(f"x_best cma-es: {res.xbest}; x_best hand computed {best_solutions[-1]}")
-        print(f"q_best for x_best: {best_configs_trend[-1]}")
-        print(f"tau_g at x_best: {best_gravity_trend[-1]}")
-        print(f"tau_ext at x_best: {best_external_trend[-1]}")
-                   
-        # Display the resulting configuration
-        if viewer:
-            input("Press enter to visualize the result ...")
-            mujoco.mj_resetData(model, data)
-            set_body_pose(model, data, base_body_id, [best_solutions[-1][0], best_solutions[-1][1], 0], rotm_to_quaternion(np.eye(3))) # ! NOTE: this is not always identity!
-            mujoco.mj_forward(model, data)
-
-            norms = []
-            for idx in range(len(local_wrenches)):
-                print(f"Layout for piece {idx+1}")
-                data.qpos[:6] = best_configs_trend[-1][idx][:6].tolist()
-                mujoco.mj_forward(model, data)
-                viewer.sync()
-
-                # ! Compute the torques for the best configuration
-                tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
-                J = compute_jacobian(model, data, tool_site_id)
-
-                tau_g = data.qfrc_bias[:6]
-                R_tool_to_world = data.site_xmat[tool_site_id].reshape(3, 3) # Rotation tool => world
-                R_world_to_tool = R_tool_to_world.T # Rotation world => tool
-                world_wrench = get_world_wrench(R_world_to_tool, local_wrenches[idx]) #! Wrench in world frame
-                tau_ext = J.T @ world_wrench
-                tau_tot = tau_g + tau_ext
-                norms.append(np.linalg.norm(tau_tot)) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
-                input(f"Press Enter to see the next piece configuration (piece {idx+1})…")
-            print(f"f obtained testing the layout: {float(np.mean(norms))}")
-                
-
-    finally:
-        if viewer:
-            viewer.close()
-
+    # Save the history of evaluations
+    history_csv_path = os.path.join(base_dir, "datasets", f"history_{num_iters}_UCB_KVAR.csv")
+    df_history = pd.DataFrame({"iteration": range(1, len(y_history) + 1), "y": y_history, "best_so_far": best_sofar_hist})
+    df_history.to_csv(history_csv_path, index=False)
+    if verbose:
+        print(f"History of evaluations saved to: {history_csv_path}")
+    
+    UCB_csv_path = os.path.join(base_dir, "datasets", f"UCB_{num_iters}_UCB_KVAR.csv")
+    df_history_ucb = pd.DataFrame({"iteration": range(1, len(UCB_Story) + 1), "UCB":   UCB_Story})
+    df_history_ucb.to_csv(UCB_csv_path, index=False)
+    if verbose:
+        print(f"History of EI evaluations saved to: {UCB_csv_path}")
