@@ -190,7 +190,13 @@ def make_simulator(local_wrenches):
 
                         # Collisions and manipulability
                         n_cols = get_collisions(model, data, parameters.verbose)
+                        cost = inverse_manipulability(q, model, data, tool_site_id)
 
+                        if (cost < best_cost) and (n_cols == 0):
+                            best_cost = cost
+                            best_q = q
+
+                        '''
                         # Compute the metric for the evaluation
                         if n_cols > 0:
                             cost = 1e12
@@ -201,6 +207,7 @@ def make_simulator(local_wrenches):
                         if cost < best_cost:
                             best_cost = cost
                             best_q = q
+                        '''
 
                     # ! If best cost is not equal to infinite
                     if best_cost < 1e12:

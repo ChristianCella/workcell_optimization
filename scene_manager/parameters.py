@@ -4,8 +4,16 @@ import numpy as np
 @dataclass
 class TestIkFlow:
     verbose: bool = True
-    N_samples: int = 20  # Samples per 'discretized' pose configuration
-    N_disc: int = 90  # Number of discrete configurations to test (rotational sweep)
+    N_samples: int = 30  # Samples per 'discretized' pose configuration
+    N_disc: int = 360  # Number of discrete configurations to test (rotational sweep)
+    use_ikflow: bool = True  # Set to False to test a hard-coded joint configuration
+    show_pose_duration: int = 0.01  # Seconds to show each pose
+
+@dataclass
+class VisualRedundancy:
+    verbose: bool = True
+    N_samples: int = 50  # Samples per 'discretized' pose configuration
+    N_disc: int = 8  # Number of discrete configurations to test (rotational sweep)
     use_ikflow: bool = True  # Set to False to test a hard-coded joint configuration
     show_pose_duration: int = 0.1  # Seconds to show each pose
 
@@ -22,4 +30,4 @@ class TxtUseCase:
                                      np.radians(100), np.radians(-95), np.radians(-95), np.radians(180)]))  # initial mean mu
     sigma0 : float = 0.5  # initial std sigma
     popsize: int = 4  # number of individuals
-    n_iter: int = 4  # number of iterations
+    n_iter: int = 200  # number of iterations
