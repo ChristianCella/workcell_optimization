@@ -100,11 +100,22 @@ def make_simulator(local_wrenches):
         mujoco.mj_forward(model, data)
         if parameters.activate_gui: viewer.sync()
 
+        # Matrix S
+        gear_ratios = [100, 100, 100, 100, 100, 100]
+        max_torques = [1.50, 1.50, 1.50, 0.28, 0.28, 0.28] 
+        H_mat = np.diag(gear_ratios) # Diagonal matrix for gear artios
+        Gamma_mat = np.diag(max_torques) # Diagonal matrix for max torques
+        S = np.linalg.inv(H_mat.T) @ np.linalg.inv(Gamma_mat.T) @ np.linalg.inv(Gamma_mat) @ np.linalg.inv(H_mat) #! S = H^-T * Gamma^-T * Gamma^-1 * H^-1
+        # S = np.eye(6) # Proxy
+
         # Start the optimization for the individual
         norms = []
         best_configs = []
         best_gravity_torques = [] 
         best_external_torques = [] 
+        best_alpha = []
+        best_beta = []
+        best_gamma = []
         individual_status = []
 
         #! First check: collisions of the initial layout (Soft constraint for layout feasibility)
@@ -119,14 +130,17 @@ def make_simulator(local_wrenches):
                 best_configs.append(np.zeros(6)) 
                 best_gravity_torques.append(1e12 * np.ones(6))
                 best_external_torques.append(1e12 * np.ones(6))
+                best_alpha.append(1e12)
+                best_beta.append(1e12)
+                best_gamma.append(1e12)
 
             # The fitness will be infinite in this case
             fitness = float(np.mean(norms))
             individual_status.append(1) # 1 = layout problem 
             individual_status.append(1000) # Placeholder for impossibility to compute IK
             individual_status.append(1000) # Placeholder for impossibility to verify if IK has collisions
-            return fitness, best_configs, best_gravity_torques, best_external_torques, individual_status
-            
+            return fitness, best_configs, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma
+
         else:
             if parameters.verbose: print(f"Initial layout has no collisions. Proceeding with the optimization.")
             individual_status.append(0) # 0 = fine, no layout problem
@@ -196,19 +210,6 @@ def make_simulator(local_wrenches):
                             best_cost = cost
                             best_q = q
 
-                        '''
-                        # Compute the metric for the evaluation
-                        if n_cols > 0:
-                            cost = 1e12
-                        else:
-                            cost = inverse_manipulability(q, model, data, tool_site_id)
-
-                        # Save the configuration with best inverse manipulability
-                        if cost < best_cost:
-                            best_cost = cost
-                            best_q = q
-                        '''
-
                     # ! If best cost is not equal to infinite
                     if best_cost < 1e12:
                         counter_pieces_without_cols += 1 # Increase the counter
@@ -233,8 +234,16 @@ def make_simulator(local_wrenches):
                 world_wrench = get_world_wrench(R_world_to_tool, local_wrenches[j]) #! Wrench in world frame
                 tau_ext = J.T @ world_wrench
                 tau_tot = tau_g + tau_ext
+
+                # Compute alpha, beta and gammma
+                alpha = world_wrench.T @ J @ S @ J.T @ world_wrench
+                beta = 2 * world_wrench.T @ J @ S @ tau_g
+                gamma = tau_g.T @ S @ tau_g
+
+                # Check on feasibility: if q = np.zeros(6) => IK failed
                 if not np.array_equal(best_q, np.zeros(6)):
-                    norms.append(np.linalg.norm(tau_tot)) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
+                    #norms.append(np.linalg.norm(tau_tot)) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
+                    norms.append(np.sqrt(alpha + beta + gamma))
                 else:
                     norms.append(1e12) #! Ik not feasible => Drive the algorithm away from this configuration
 
@@ -242,6 +251,11 @@ def make_simulator(local_wrenches):
                 best_configs.append(best_q.copy())
                 best_gravity_torques.append(tau_g.copy())
                 best_external_torques.append(tau_ext.copy())
+
+                # Append the values of alpha, beta and gamma
+                best_alpha.append(alpha)
+                best_beta.append(beta)
+                best_gamma.append(gamma)
                 if parameters.verbose: print(f"Best configuration for piece {j}: {np.round(best_q, 3)} with cost {best_cost:.3f}")
 
             # Update the status for the individual 
@@ -251,7 +265,7 @@ def make_simulator(local_wrenches):
             # All the pieces to be screwed have been processed
             fitness = float(np.mean(norms)) # sum(|| tau_tot ||_2) / N_pieces
             if parameters.verbose: print(f"For generation {gen} the best configurations are: {best_configs}")
-            return fitness, best_configs, best_gravity_torques, best_external_torques, individual_status
+            return fitness, best_configs, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma
 
     return run_simulation, model, data, base_body_id
 
@@ -263,10 +277,10 @@ if __name__ == "__main__":
 
     #! This will become a query to a database
     local_wrenches = [
-        (np.array([0, 0, -30, 0, 0, -10])),
-        (np.array([0, 0, -20, 0, 0, -5])),
-        (np.array([0, 0, -30, 0, 0, -10])),
-        (np.array([0, 0, -30, 0, 0, -10])),
+        (np.array([0, 0, -30, 0, 0, -20])),
+        (np.array([0, 0, -30, 0, 0, -20])),
+        (np.array([0, 0, -30, 0, 0, -20])),
+        (np.array([0, 0, -30, 0, 0, -20])),
     ]
 
     run_sim, model, data, base_body_id = make_simulator(local_wrenches)
@@ -301,6 +315,13 @@ if __name__ == "__main__":
     best_external_trend = []
     best_solutions = []
     simulation_status = []
+    best_alpha_trend = []
+    best_beta_trend = []
+    best_gamma_trend = []
+    complete_alpha_trend = []
+    complete_beta_trend = []
+    complete_gamma_trend = []  
+    best_individual_idx = [] 
     starting_fitness = 1e12
     
     try:
@@ -317,14 +338,20 @@ if __name__ == "__main__":
             best_gravity_torques_gen = []
             best_external_torques_gen = []
             individual_status_gen = []
+            best_alpha_gen = []
+            best_beta_gen = []
+            best_gamma_gen = []
             for idx, sol in enumerate(sols): #! For each chromosome in the current generation
                 if parameters.verbose: print(f"    • chromosome {idx}: {sol}")
-                fit, best_config, best_gravity, best_external, individual_status = run_sim(sol)
+                fit, best_config, best_gravity, best_external, individual_status, best_alpha, best_beta, best_gamma = run_sim(sol)
                 fitnesses.append(fit)
                 best_configs.append(best_config)
                 best_gravity_torques_gen.append(best_gravity)
                 best_external_torques_gen.append(best_external)
                 individual_status_gen.append(individual_status)
+                best_alpha_gen.append(best_alpha) # [[], ..., []] 1 x N_individuals; each element is 1 x NT
+                best_beta_gen.append(best_beta)
+                best_gamma_gen.append(best_gamma)
 
             end_time = time.time()
             print(f"Generation {gen} took {end_time - start_time:.2f} seconds to compute.")
@@ -338,6 +365,7 @@ if __name__ == "__main__":
 
             # Update robot base to best solution
             i_best = int(np.argmin(fitnesses))
+            best_individual_idx.append(i_best)
             x_b, y_b, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b = sols[i_best][:8]
             final_best_configs = best_configs[i_best] # Best joint configs for the current generation
             if parameters.verbose: print(f"The best configurations for generation {gen} is: {final_best_configs}")
@@ -362,6 +390,9 @@ if __name__ == "__main__":
                 best_gravity_trend.append(best_gravity_torques_gen[i_best])
                 best_external_trend.append(best_external_torques_gen[i_best])
                 simulation_status.append(individual_status_gen)
+                best_alpha_trend.append(best_alpha_gen[i_best])
+                best_beta_trend.append(best_beta_gen[i_best])
+                best_gamma_trend.append(best_gamma_gen[i_best])
             else:
                 if best_fitness_trend:  # Only proceed if the list is non-empty
                     best_fitness_trend.append(best_fitness_trend[-1])
@@ -370,6 +401,9 @@ if __name__ == "__main__":
                     best_gravity_trend.append(best_gravity_trend[-1])
                     best_external_trend.append(best_external_trend[-1])
                     simulation_status.append(individual_status_gen)
+                    best_alpha_trend.append(best_alpha_trend[-1])
+                    best_beta_trend.append(best_beta_trend[-1])
+                    best_gamma_trend.append(best_gamma_trend[-1])
                 else:
                     print(f"The lists were empty. Appending None to proceed.")
                     best_fitness_trend.append(starting_fitness)
@@ -377,7 +411,15 @@ if __name__ == "__main__":
                     best_configs_trend.append(None)
                     best_gravity_trend.append(None)
                     best_external_trend.append(None)
+                    best_alpha_trend.append(None)
+                    best_beta_trend.append(None)
+                    best_gamma_trend.append(None)
                     simulation_status.append(individual_status_gen)
+
+            # Regardless of the results, append, alpha, beta and gamma
+            complete_alpha_trend.append(best_alpha_gen)
+            complete_beta_trend.append(best_beta_gen)
+            complete_gamma_trend.append(best_gamma_gen)
 
             #! In case that: the fitness does not improve for too long, the step size is too small, or others, stop the optimization
             if es.stop():
@@ -390,6 +432,39 @@ if __name__ == "__main__":
         # Fitness trend
         df_fit = pd.DataFrame(best_fitness_trend, columns=["fitness"])
         df_fit.to_csv(os.path.join(save_dir, "results/data", f"best_fitness.csv"), index=False)
+
+        print(f"The vector complete_alpha_trend is: {complete_alpha_trend}")
+        print(f"The list of best individuals is: {best_individual_idx}")
+
+        # Alpha, beta and gamma trends (NOTE: for the best individuals only!!)
+        rows = []
+        for gen, alphas in enumerate(best_alpha_trend):
+            for piece_idx, a in enumerate(alphas, start=1):
+                rows.append({"generation": gen, "piece": piece_idx, "alpha": a})
+        df_alpha = pd.DataFrame(rows)
+        df_alpha.to_csv(os.path.join(save_dir, "results/data", "alpha_trend.csv"), index=False)
+
+        rows = []
+        for gen, betas in enumerate(best_beta_trend):
+            for piece_idx, b in enumerate(betas, start=1):
+                rows.append({"generation": gen, "piece": piece_idx, "beta": b})
+        df_beta = pd.DataFrame(rows)
+        df_beta.to_csv(os.path.join(save_dir, "results/data", f"beta_trend.csv"), index=False)
+
+        rows = []
+        for gen, gammas in enumerate(best_gamma_trend):
+            for piece_idx, g in enumerate(gammas, start=1):
+                rows.append({"generation": gen, "piece": piece_idx, "gamma": g})
+        df_gamma = pd.DataFrame(rows)
+        df_gamma.to_csv(os.path.join(save_dir, "results/data", f"gamma_trend.csv"), index=False)
+
+        # Save the complete trends of alpha beta and gamma
+
+        # Save the list of indices
+        df_best = pd.DataFrame({"generation": range(len(best_individual_idx)),
+                        "best_individual": best_individual_idx})
+        df_best.to_csv("best_individuals.csv", index=False)
+
 
         # Flatten the best_gravity_trend into rows: [generation, individual, tau1, ..., tau6]
         flat_gravity = []

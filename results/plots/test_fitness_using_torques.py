@@ -22,12 +22,15 @@ assert df_ext.shape[1] == expected_cols and df_grav.shape[1] == expected_cols, \
 # For each generation, compute the mean norm of (tau_g + tau_ext) across all pieces
 for gen_idx in range(len(df_ext)):
     total_norms = []
+    gear_ratios = [100, 100, 100, 100, 100, 100]
+    max_torques = [1.50, 1.50, 1.50, 0.28, 0.28, 0.28]
     for piece_idx in range(n_pieces):
         # Extract joint torques for this piece
         ext = df_ext.iloc[gen_idx, piece_idx * n_joints : (piece_idx + 1) * n_joints].to_numpy()
         grav = df_grav.iloc[gen_idx, piece_idx * n_joints : (piece_idx + 1) * n_joints].to_numpy()
         
-        tau_sum = ext + grav
+        tau_sum = (ext + grav) / (np.array(gear_ratios) * np.array(max_torques))
+        print(f"the normalized torques are: {tau_sum}")
         norm = np.linalg.norm(tau_sum)  # 2-norm
         total_norms.append(norm)
     
