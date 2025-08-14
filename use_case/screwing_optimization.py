@@ -28,7 +28,7 @@ from create_scene import create_scene
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
 import fonts
-from transformations import rotm_to_quaternion, get_world_wrench, get_homogeneous_matrix
+from transformations import rotm_to_quaternion, euler_to_quaternion, get_world_wrench, get_homogeneous_matrix
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
@@ -72,15 +72,15 @@ def make_simulator(local_wrenches):
         mujoco.mj_resetData(model, data) #! Reset the simulation data
 
         # Set the new robot base (matrix A^w_b)
-        _, _, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0, 0, 0, 0)
+        _, _, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0.2, np.degrees(float(params[2])), 0, 0)
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
         # Set the piece in the environment (matrix A^w_p)
-        _, _, A_w_p = get_homogeneous_matrix(-0.15, -0.15, 0, 0, 0, 0)
+        _, _, A_w_p = get_homogeneous_matrix(float(params[6]), float(params[7]), 0, 0, 0, 0)
         set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
         # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-        _, _, A_ee_t1 = get_homogeneous_matrix(0, 0.15, 0, 30, 0, 0)
+        _, _, A_ee_t1 = get_homogeneous_matrix(float(params[3]), float(params[4]), 0, np.degrees(float(params[5])), 0, 0)
         set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
         # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
@@ -94,15 +94,15 @@ def make_simulator(local_wrenches):
         _, _, A_wl3_ee = get_homogeneous_matrix(0, 0.1, 0, -90, 0, 0)
 
         # Set the new robot configuration
-        q0 = np.array([float(params[2]), float(params[3]), float(params[4]),
-                       float(params[5]), float(params[6]), float(params[7])])
+        q0 = np.array([float(params[8]), float(params[9]), float(params[10]),
+                       float(params[11]), float(params[12]), float(params[13])])
         data.qpos[:6] = q0.tolist()
         mujoco.mj_forward(model, data)
         if parameters.activate_gui: viewer.sync()
 
         # Matrix S
         gear_ratios = [100, 100, 100, 100, 100, 100]
-        max_torques = [1.50, 1.50, 1.50, 0.28, 0.28, 0.28] 
+        max_torques = [1.50, 1.50, 1.50, 0.28, 0.28, 0.28] #! Those on the motors (not the joints)
         H_mat = np.diag(gear_ratios) # Diagonal matrix for gear artios
         Gamma_mat = np.diag(max_torques) # Diagonal matrix for max torques
         S = np.linalg.inv(H_mat.T) @ np.linalg.inv(Gamma_mat.T) @ np.linalg.inv(Gamma_mat) @ np.linalg.inv(H_mat) #! S = H^-T * Gamma^-T * Gamma^-1 * H^-1
@@ -111,6 +111,7 @@ def make_simulator(local_wrenches):
         # Start the optimization for the individual
         norms = []
         best_configs = []
+        best_manipulability = []
         best_gravity_torques = [] 
         best_external_torques = [] 
         best_alpha = []
@@ -133,13 +134,14 @@ def make_simulator(local_wrenches):
                 best_alpha.append(1e12)
                 best_beta.append(1e12)
                 best_gamma.append(1e12)
+                best_manipulability.append(1e12)
 
             # The fitness will be infinite in this case
             fitness = float(np.mean(norms))
             individual_status.append(1) # 1 = layout problem 
             individual_status.append(1000) # Placeholder for impossibility to compute IK
             individual_status.append(1000) # Placeholder for impossibility to verify if IK has collisions
-            return fitness, best_configs, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma
+            return fitness, best_configs, best_manipulability, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma
 
         else:
             if parameters.verbose: print(f"Initial layout has no collisions. Proceeding with the optimization.")
@@ -202,7 +204,8 @@ def make_simulator(local_wrenches):
                         #viewer.sync()
                         #time.sleep(parameters.show_pose_duration)
 
-                        # Collisions and manipulability
+                        # Collisions and 'inverse' manipulability
+
                         n_cols = get_collisions(model, data, parameters.verbose)
                         cost = inverse_manipulability(q, model, data, tool_site_id)
 
@@ -233,7 +236,7 @@ def make_simulator(local_wrenches):
                 R_world_to_tool = R_tool_to_world.T # Rotation world => tool
                 world_wrench = get_world_wrench(R_world_to_tool, local_wrenches[j]) #! Wrench in world frame
                 tau_ext = J.T @ world_wrench
-                tau_tot = tau_g + tau_ext
+                #tau_tot = tau_g + tau_ext
 
                 # Compute alpha, beta and gammma
                 alpha = world_wrench.T @ J @ S @ J.T @ world_wrench
@@ -249,6 +252,7 @@ def make_simulator(local_wrenches):
 
                 # Append the best configuration for this piece
                 best_configs.append(best_q.copy())
+                best_manipulability.append(cost)
                 best_gravity_torques.append(tau_g.copy())
                 best_external_torques.append(tau_ext.copy())
 
@@ -265,9 +269,9 @@ def make_simulator(local_wrenches):
             # All the pieces to be screwed have been processed
             fitness = float(np.mean(norms)) # sum(|| tau_tot ||_2) / N_pieces
             if parameters.verbose: print(f"For generation {gen} the best configurations are: {best_configs}")
-            return fitness, best_configs, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma
+            return fitness, best_configs, best_manipulability, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma
 
-    return run_simulation, model, data, base_body_id
+    return run_simulation, model, data, base_body_id, screwdriver_body_id, piece_body_id, tool_site_id
 
 #! Main
 if __name__ == "__main__":
@@ -283,7 +287,7 @@ if __name__ == "__main__":
         (np.array([0, 0, -30, 0, 0, -20])),
     ]
 
-    run_sim, model, data, base_body_id = make_simulator(local_wrenches)
+    run_sim, model, data, base_body_id, screwdriver_body_id, piece_body_id, tool_site_id = make_simulator(local_wrenches)
 
     # Parameters of the genetic algorithm
     x0 = parameters.x0
@@ -292,8 +296,8 @@ if __name__ == "__main__":
     n_iter = parameters.n_iter
     opts = {
         "popsize": popsize,
-        "bounds": [[0.0, -0.4, -np.pi, -np.pi, -np.pi, -2*np.pi, -2*np.pi, -2*np.pi], 
-                   [0.5,  0.4, np.pi, np.pi, np.pi, 2*np.pi, 2*np.pi, 2*np.pi]],  # bounds for x0
+        "bounds": [[0.0, -0.4, -np.pi/3, 0.0, 0.0, -np.pi/4, 0.2, 0.2, -np.pi, -np.pi, -np.pi, -2*np.pi, -2*np.pi, -2*np.pi], 
+                   [0.5,  0.4, np.pi/3, 0.1, 0.1, np.pi/4, 0.4, 0.4, np.pi, np.pi, np.pi, 2*np.pi, 2*np.pi, 2*np.pi]],  # bounds for x0
         "verb_disp": 0,
     }
     es = cma.CMAEvolutionStrategy(x0, sigma0, opts)
@@ -311,6 +315,7 @@ if __name__ == "__main__":
     # Lists containing the trend of the best fitness
     best_fitness_trend = []
     best_configs_trend = []
+    best_manip_trend = []
     best_gravity_trend = []
     best_external_trend = []
     best_solutions = []
@@ -335,6 +340,7 @@ if __name__ == "__main__":
             # Lists that will contain the results for this generation
             fitnesses = []
             best_configs = []
+            best_manip = []
             best_gravity_torques_gen = []
             best_external_torques_gen = []
             individual_status_gen = []
@@ -343,9 +349,10 @@ if __name__ == "__main__":
             best_gamma_gen = []
             for idx, sol in enumerate(sols): #! For each chromosome in the current generation
                 if parameters.verbose: print(f"    • chromosome {idx}: {sol}")
-                fit, best_config, best_gravity, best_external, individual_status, best_alpha, best_beta, best_gamma = run_sim(sol)
+                fit, best_config, best_man, best_gravity, best_external, individual_status, best_alpha, best_beta, best_gamma = run_sim(sol)
                 fitnesses.append(fit)
                 best_configs.append(best_config)
+                best_manip.append(best_man)
                 best_gravity_torques_gen.append(best_gravity)
                 best_external_torques_gen.append(best_external)
                 individual_status_gen.append(individual_status)
@@ -366,12 +373,21 @@ if __name__ == "__main__":
             # Update robot base to best solution
             i_best = int(np.argmin(fitnesses))
             best_individual_idx.append(i_best)
-            x_b, y_b, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b = sols[i_best][:8]
+            x_b, y_b, theta_x_b, x_t, y_t, theta_x_t, x_p, y_p, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b = sols[i_best][:9]
             final_best_configs = best_configs[i_best] # Best joint configs for the current generation
+            final_best_manip = best_manip[i_best]
             if parameters.verbose: print(f"The best configurations for generation {gen} is: {final_best_configs}")
 
             # Set the robot base to the best solution
-            set_body_pose(model, data, base_body_id, [x_b, y_b, 0], rotm_to_quaternion(np.eye(3))) # ! NOTE: this is not always identity!
+            set_body_pose(model, data, base_body_id, [x_b, y_b, 0.2], euler_to_quaternion(theta_x_b, 0, 0)) 
+            mujoco.mj_forward(model, data)
+
+            # Set the piece to the best position
+            set_body_pose(model, data, piece_body_id, [x_p, y_p, 0.0], euler_to_quaternion(0, 0, 0)) 
+            mujoco.mj_forward(model, data)
+
+            # Set the tool to the best position
+            set_body_pose(model, data, screwdriver_body_id, [x_t, y_t, 0.0], euler_to_quaternion(theta_x_t, 0, 0)) 
             mujoco.mj_forward(model, data)
             if viewer: viewer.sync()
 
@@ -385,8 +401,9 @@ if __name__ == "__main__":
             if min(fitnesses) < starting_fitness:
                 starting_fitness = min(fitnesses)
                 best_fitness_trend.append(starting_fitness)
-                best_solutions.append((x_b, y_b, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b))
+                best_solutions.append((x_b, y_b, theta_x_b, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b))
                 best_configs_trend.append(final_best_configs)
+                best_manip_trend.append(final_best_manip)
                 best_gravity_trend.append(best_gravity_torques_gen[i_best])
                 best_external_trend.append(best_external_torques_gen[i_best])
                 simulation_status.append(individual_status_gen)
@@ -398,6 +415,7 @@ if __name__ == "__main__":
                     best_fitness_trend.append(best_fitness_trend[-1])
                     best_solutions.append(best_solutions[-1])
                     best_configs_trend.append(best_configs_trend[-1])
+                    best_manip_trend.append(best_manip_trend[-1])
                     best_gravity_trend.append(best_gravity_trend[-1])
                     best_external_trend.append(best_external_trend[-1])
                     simulation_status.append(individual_status_gen)
@@ -409,6 +427,7 @@ if __name__ == "__main__":
                     best_fitness_trend.append(starting_fitness)
                     best_solutions.append(None)
                     best_configs_trend.append(None)
+                    best_manip_trend.append(None)
                     best_gravity_trend.append(None)
                     best_external_trend.append(None)
                     best_alpha_trend.append(None)
@@ -428,42 +447,48 @@ if __name__ == "__main__":
         # Get the best across all generations
         res = es.result
 
+        print(f"the trend of the best manipulability is: {best_manip_trend}")
+
         #! Save all the data
-        # Fitness trend
+        # Fitness trend (primary_leader)
         df_fit = pd.DataFrame(best_fitness_trend, columns=["fitness"])
-        df_fit.to_csv(os.path.join(save_dir, "results/data", f"best_fitness.csv"), index=False)
+        df_fit.to_csv(os.path.join(save_dir, "results/data", f"best_primary_leader.csv"), index=False)
 
-        print(f"The vector complete_alpha_trend is: {complete_alpha_trend}")
-        print(f"The list of best individuals is: {best_individual_idx}")
+        # Manipulability trend (primary-followers)
+        n_pieces = len(best_manip_trend[0])
+        cols = [f"piece{p+1}" for p in range(n_pieces)]
 
-        # Alpha, beta and gamma trends (NOTE: for the best individuals only!!)
-        rows = []
-        for gen, alphas in enumerate(best_alpha_trend):
-            for piece_idx, a in enumerate(alphas, start=1):
-                rows.append({"generation": gen, "piece": piece_idx, "alpha": a})
-        df_alpha = pd.DataFrame(rows)
-        df_alpha.to_csv(os.path.join(save_dir, "results/data", "alpha_trend.csv"), index=False)
+        df = pd.DataFrame(best_manip_trend, columns=cols)
+        df.insert(0, "generation", range(len(best_manip_trend)))  # optional but handy
 
-        rows = []
-        for gen, betas in enumerate(best_beta_trend):
-            for piece_idx, b in enumerate(betas, start=1):
-                rows.append({"generation": gen, "piece": piece_idx, "beta": b})
-        df_beta = pd.DataFrame(rows)
-        df_beta.to_csv(os.path.join(save_dir, "results/data", f"beta_trend.csv"), index=False)
-
-        rows = []
-        for gen, gammas in enumerate(best_gamma_trend):
-            for piece_idx, g in enumerate(gammas, start=1):
-                rows.append({"generation": gen, "piece": piece_idx, "gamma": g})
-        df_gamma = pd.DataFrame(rows)
-        df_gamma.to_csv(os.path.join(save_dir, "results/data", f"gamma_trend.csv"), index=False)
+        out_dir = os.path.join(save_dir, "results", "data")
+        os.makedirs(out_dir, exist_ok=True)
+        df.to_csv(os.path.join(out_dir, "best_primary_followers.csv"), index=False)
 
         # Save the complete trends of alpha beta and gamma
+        def save_trend_wide(trend_data, filename):
+            flat_rows = []
+            for pieces in trend_data:
+                row = []
+                for joints in pieces:
+                    row.extend(joints)
+                flat_rows.append(row)
+
+            n_pieces = len(trend_data[0])
+            n_joints = len(trend_data[0][0])
+            columns = [f"piece{p+1}_joint{j+1}" for p in range(n_pieces) for j in range(n_joints)]
+
+            df = pd.DataFrame(flat_rows, columns=columns)
+            df.to_csv(os.path.join(save_dir, "results/data", filename), index=False)
+
+        save_trend_wide(complete_alpha_trend, "complete_alpha_trend_wide.csv")
+        save_trend_wide(complete_beta_trend, "complete_beta_trend_wide.csv")
+        save_trend_wide(complete_gamma_trend, "complete_gamma_trend_wide.csv")
 
         # Save the list of indices
         df_best = pd.DataFrame({"generation": range(len(best_individual_idx)),
                         "best_individual": best_individual_idx})
-        df_best.to_csv("best_individuals.csv", index=False)
+        df_best.to_csv(os.path.join(save_dir, "results/data", f"best_individuals_indices.csv"), index=False)
 
 
         # Flatten the best_gravity_trend into rows: [generation, individual, tau1, ..., tau6]
@@ -507,7 +532,7 @@ if __name__ == "__main__":
         df_external.to_csv(os.path.join(save_dir, "results/data", "best_external_torques.csv"), index=False)
 
         # Best configuration trend
-        df_x = pd.DataFrame(best_solutions, columns=["x", "y", "q01", "q02", "q03", "q04", "q05", "q06"])
+        df_x = pd.DataFrame(best_solutions, columns=["x", "y", "theta_x", "q01", "q02", "q03", "q04", "q05", "q06"])
         df_x.to_csv(os.path.join(save_dir, "results/data", f"best_solutions.csv"), index=False)
 
         # Status of each individual in each generation
@@ -520,12 +545,12 @@ if __name__ == "__main__":
         df_status.to_csv(os.path.join(save_dir, "results/data", f"simulation_status.csv"), index=False)
 
         print("\nOptimization terminated:")
-        #if parameters.verbose:
-        print(f"f_min cma-es: {res.fbest:.6f}; f_min hand computed: {best_fitness_trend[-1]:.6f}")
-        print(f"x_best cma-es: {res.xbest}; x_best hand computed {best_solutions[-1]}")
-        print(f"q_best for x_best: {best_configs_trend[-1]}")
-        print(f"tau_g at x_best: {best_gravity_trend[-1]}")
-        print(f"tau_ext at x_best: {best_external_trend[-1]}")
+        if parameters.verbose:
+            print(f"f_min cma-es: {res.fbest:.6f}; f_min hand computed: {best_fitness_trend[-1]:.6f}")
+            print(f"x_best cma-es: {res.xbest}; x_best hand computed {best_solutions[-1]}")
+            print(f"q_best for x_best: {best_configs_trend[-1]}")
+            print(f"tau_g at x_best: {best_gravity_trend[-1]}")
+            print(f"tau_ext at x_best: {best_external_trend[-1]}")
                    
         # Display the resulting configuration
         if viewer:
@@ -533,15 +558,23 @@ if __name__ == "__main__":
             mujoco.mj_resetData(model, data)
 
             # Set robot base
-            set_body_pose(model, data, base_body_id, [best_solutions[-1][0], best_solutions[-1][1], 0], rotm_to_quaternion(np.eye(3))) # ! NOTE: this is not always identity!
+            set_body_pose(model, data, base_body_id, [best_solutions[-1][0], best_solutions[-1][1], 0.2], euler_to_quaternion(best_solutions[-1][2], 0, 0)) 
             
+            # Set piece
+            set_body_pose(model, data, piece_body_id, [best_solutions[-1][6], best_solutions[-1][7], 0.0], euler_to_quaternion(0, 0, 0))
+
+            # Set tool
+            set_body_pose(model, data, screwdriver_body_id, [best_solutions[-1][3], best_solutions[-1][4], 0.0], euler_to_quaternion(best_solutions[-1][5], 0, 0))
+
             # Set robot joints
-            q0_final = np.array([best_solutions[-1][2], best_solutions[-1][3], best_solutions[-1][4],
-                       best_solutions[-1][5], best_solutions[-1][6], best_solutions[-1][7]])
+            q0_final = np.array([best_solutions[-1][8], best_solutions[-1][9], best_solutions[-1][10],
+                       best_solutions[-1][11], best_solutions[-1][12], best_solutions[-1][13]])
             data.qpos[:6] = q0_final.tolist()
             mujoco.mj_forward(model, data)
 
             norms = []
+            gear_ratios = [100, 100, 100, 100, 100, 100]
+            max_torques = [1.50, 1.50, 1.50, 0.28, 0.28, 0.28]
             for idx in range(len(local_wrenches)):
                 print(f"Layout for piece {idx+1}")
                 data.qpos[:6] = best_configs_trend[-1][idx][:6].tolist()
@@ -559,8 +592,7 @@ if __name__ == "__main__":
                 tau_ext = J.T @ world_wrench
                 tau_tot = tau_g + tau_ext
 
-                print(f"Piece: {idx + 1}; Gravity torques: {tau_g}, External torques: {tau_ext}, Total torques: {tau_tot}")
-                norms.append(np.linalg.norm(tau_tot)) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
+                norms.append(np.linalg.norm(tau_tot / (np.array(gear_ratios) * np.array(max_torques)))) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
                 input(f"Press Enter to see the next piece configuration (piece {idx+1})…")
             print(f"f obtained testing the layout: {float(np.mean(norms))}")
                 

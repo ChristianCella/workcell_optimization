@@ -38,6 +38,14 @@ def inverse_manipulability(q, model, data, tool_site_id):
     det = np.linalg.det(JJt)
     return 1e12 if det <= 1e-12 else 1.0/np.sqrt(det)
 
+def directional_inverse_manipulability(q, model, data, tool_site_id, u_z):
+    data.qpos[:model.nv] = q; mujoco.mj_forward(model, data)
+    Jp = np.zeros((3,model.nv)); Jr = np.zeros((3,model.nv))
+    mujoco.mj_jacSite(model, data, Jp, Jr, tool_site_id)
+    J = np.vstack([Jp, Jr])[:,:6]
+    dir_inv_man = u_z.T @ J @ J.T @ u_z
+    return 1e12 if dir_inv_man <= 1e-12 else 1.0/np.sqrt(dir_inv_man)
+
 def setup_target_frames(model, data, ref_body_ids, target_poses):
     for i, (pos, quat) in enumerate(target_poses):
         set_body_pose(model, data, ref_body_ids[i],

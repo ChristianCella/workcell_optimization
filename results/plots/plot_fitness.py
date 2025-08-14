@@ -9,7 +9,7 @@ mpl.rcParams['text.latex.preamble'] = r'\usepackage{amsmath}'
 
 # Load the CSV file
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-dataset_csv_path = os.path.join(base_dir, "data/best_fitness.csv")
+dataset_csv_path = os.path.join(base_dir, "data/best_primary_leader.csv")
 df = pd.read_csv(dataset_csv_path) 
 
 # Plot the fitness values
