@@ -15,8 +15,8 @@ df = pd.read_csv(dataset_csv_path)
 
 # Plot the x and y base coordinates
 plt.figure(figsize = (8, 5))
-plt.plot(df['x'], marker='o')
-plt.plot(df['y'], marker='o')
+plt.plot(df['x_b'], marker='o')
+plt.plot(df['y_b'], marker='o')
 plt.title(rf'$\textbf{{Robot base position}}$', fontsize=20)
 plt.xlabel('Iteration', fontsize = 15)
 plt.ylabel(r'$x_{base}, y_{base}$', fontsize = 15)
@@ -26,7 +26,7 @@ plt.show()
 
 # Plot the theta_x coordinate
 plt.figure(figsize = (8, 5))
-plt.plot(np.degrees(df['theta_x']), marker='o')
+plt.plot(np.degrees(df['theta_x_b']), marker='o')
 plt.title(rf'$\textbf{{Robot base x orientation}}$', fontsize=20)
 plt.xlabel('Iteration', fontsize = 15)
 plt.ylabel(r'$\theta_{x}$', fontsize = 15)

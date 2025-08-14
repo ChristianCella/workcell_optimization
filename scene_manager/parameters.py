@@ -26,8 +26,8 @@ class TxtUseCase:
     show_pose_duration: int = 0.05  # Seconds to show each pose
     activate_gui : bool = True  # Whether to activate the GUI for visualization
     x0: np.ndarray = field(default_factory=lambda: 
-                           np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.2, -0.2, np.radians(100), np.radians(-95), 
+                           np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.2, np.radians(100), np.radians(-95), 
                                      np.radians(100), np.radians(-95), np.radians(-95), np.radians(180)]))  # initial mean mu
-    sigma0 : float = 0.5  # initial std sigma
-    popsize: int = 8  # number of individuals
-    n_iter: int = 100  # number of iterations
+    sigma0 : float = 0.6  # initial std sigma
+    popsize: int = 20  # number of individuals
+    n_iter: int = 20  # number of iterations

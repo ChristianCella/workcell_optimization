@@ -72,7 +72,7 @@ def make_simulator(local_wrenches):
         mujoco.mj_resetData(model, data) #! Reset the simulation data
 
         # Set the new robot base (matrix A^w_b)
-        _, _, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0.2, np.degrees(float(params[2])), 0, 0)
+        _, _, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0.1, np.degrees(float(params[2])), 0, 0)
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
         # Set the piece in the environment (matrix A^w_p)
@@ -127,14 +127,14 @@ def make_simulator(local_wrenches):
 
             # Append values that you can associate to this failure (bad initial layout)
             for j in range(len(ref_body_ids)):
-                norms.append(1e12)
+                norms.append(1e2)
                 best_configs.append(np.zeros(6)) 
-                best_gravity_torques.append(1e12 * np.ones(6))
-                best_external_torques.append(1e12 * np.ones(6))
-                best_alpha.append(1e12)
-                best_beta.append(1e12)
-                best_gamma.append(1e12)
-                best_manipulability.append(1e12)
+                best_gravity_torques.append(1e2 * np.ones(6))
+                best_external_torques.append(1e2 * np.ones(6))
+                best_alpha.append(1e2)
+                best_beta.append(1e2)
+                best_gamma.append(1e2)
+                best_manipulability.append(1e2)
 
             # The fitness will be infinite in this case
             fitness = float(np.mean(norms))
@@ -185,8 +185,8 @@ def make_simulator(local_wrenches):
                 fk_ok = torch.cat(fk_ok, dim=0)
                 sols_np = sols_ok.cpu().numpy()
                 fk_np = fk_ok.cpu().numpy()
-                cost = 1e12
-                best_cost = 1e12
+                cost = 1e6
+                best_cost = 1e6
 
                 # Maybe, no IK solution is available (i.e., the piece is unreachable since outside the workspace)
                 best_q = np.zeros(6) # This variable will be overwritten
@@ -214,7 +214,7 @@ def make_simulator(local_wrenches):
                             best_q = q
 
                     # ! If best cost is not equal to infinite
-                    if best_cost < 1e12:
+                    if best_cost < 1e6:
                         counter_pieces_without_cols += 1 # Increase the counter
         
                 else: #! No IK solution found, set the best configuration to the default one (all joints at 0)  
@@ -248,7 +248,7 @@ def make_simulator(local_wrenches):
                     #norms.append(np.linalg.norm(tau_tot)) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
                     norms.append(np.sqrt(alpha + beta + gamma))
                 else:
-                    norms.append(1e12) #! Ik not feasible => Drive the algorithm away from this configuration
+                    norms.append(1e2) #! Ik not feasible => Drive the algorithm away from this configuration
 
                 # Append the best configuration for this piece
                 best_configs.append(best_q.copy())
@@ -290,17 +290,22 @@ if __name__ == "__main__":
     run_sim, model, data, base_body_id, screwdriver_body_id, piece_body_id, tool_site_id = make_simulator(local_wrenches)
 
     # Parameters of the genetic algorithm
-    x0 = parameters.x0
-    sigma0 = parameters.sigma0
+    lb = np.array([0.0, -0.4, -np.pi/3, 0.0, 0.0, -np.pi/4, 0.15, 0.15, -np.pi, -np.pi, -np.pi, -2*np.pi, -2*np.pi, -2*np.pi])
+    ub = np.array([0.5,  0.4,  np.pi/3, 0.1, 0.1,  np.pi/4, 0.4, 0.4,  np.pi,  np.pi,  np.pi,  2*np.pi,  2*np.pi,  2*np.pi])
+
+    center = (ub + lb) / 2.0
+    scale  = (ub - lb) / 2.0
+
+    def encode(x):  return (x - center) / scale
+    def decode(z):  return center + scale * z
+
+    x0_scaled    = encode(np.array(parameters.x0))
     popsize = parameters.popsize
+    sigma0_scaled = parameters.sigma0           # relative step size in normalized space
+    opts = {"popsize": popsize, "bounds": [[-1]*14, [1]*14], "verb_disp": 0}
     n_iter = parameters.n_iter
-    opts = {
-        "popsize": popsize,
-        "bounds": [[0.0, -0.4, -np.pi/3, 0.0, 0.0, -np.pi/4, 0.2, 0.2, -np.pi, -np.pi, -np.pi, -2*np.pi, -2*np.pi, -2*np.pi], 
-                   [0.5,  0.4, np.pi/3, 0.1, 0.1, np.pi/4, 0.4, 0.4, np.pi, np.pi, np.pi, 2*np.pi, 2*np.pi, 2*np.pi]],  # bounds for x0
-        "verb_disp": 0,
-    }
-    es = cma.CMAEvolutionStrategy(x0, sigma0, opts)
+
+    es = cma.CMAEvolutionStrategy(x0_scaled, sigma0_scaled, opts)
 
     # ! Start the optimization loop
     viewer = None
@@ -327,12 +332,15 @@ if __name__ == "__main__":
     complete_beta_trend = []
     complete_gamma_trend = []  
     best_individual_idx = [] 
-    starting_fitness = 1e12
+    starting_fitness = 1e2
     
     try:
+        start_time_complete = time.time()
         for gen in range(n_iter): #! Loop until the maximum number of generations is reached
             print(f"Generation of chromosomes number: {gen}")
-            sols = es.ask() # Generate a new population of chromosomes
+
+            zs = es.ask()
+            sols = [decode(np.array(z)) for z in zs]
 
             # Compute time for each generation
             start_time = time.time()
@@ -366,20 +374,20 @@ if __name__ == "__main__":
             if parameters.verbose: print(f"For generation {gen} the complete set of best configurations is: {best_configs}")
 
             # Update the distribution mean, step size and covariance matrix
-            es.tell(sols, fitnesses)
+            es.tell(zs, fitnesses)
             es.logger.add()
             es.disp()
 
             # Update robot base to best solution
             i_best = int(np.argmin(fitnesses))
             best_individual_idx.append(i_best)
-            x_b, y_b, theta_x_b, x_t, y_t, theta_x_t, x_p, y_p, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b = sols[i_best][:9]
+            x_b, y_b, theta_x_b, x_t, y_t, theta_x_t, x_p, y_p, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b = sols[i_best][:14]
             final_best_configs = best_configs[i_best] # Best joint configs for the current generation
             final_best_manip = best_manip[i_best]
             if parameters.verbose: print(f"The best configurations for generation {gen} is: {final_best_configs}")
 
             # Set the robot base to the best solution
-            set_body_pose(model, data, base_body_id, [x_b, y_b, 0.2], euler_to_quaternion(theta_x_b, 0, 0)) 
+            set_body_pose(model, data, base_body_id, [x_b, y_b, 0.1], euler_to_quaternion(theta_x_b, 0, 0)) 
             mujoco.mj_forward(model, data)
 
             # Set the piece to the best position
@@ -401,7 +409,7 @@ if __name__ == "__main__":
             if min(fitnesses) < starting_fitness:
                 starting_fitness = min(fitnesses)
                 best_fitness_trend.append(starting_fitness)
-                best_solutions.append((x_b, y_b, theta_x_b, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b))
+                best_solutions.append((x_b, y_b, theta_x_b, x_t, y_t, theta_x_t, x_p, y_p, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b))
                 best_configs_trend.append(final_best_configs)
                 best_manip_trend.append(final_best_manip)
                 best_gravity_trend.append(best_gravity_torques_gen[i_best])
@@ -441,13 +449,20 @@ if __name__ == "__main__":
             complete_gamma_trend.append(best_gamma_gen)
 
             #! In case that: the fitness does not improve for too long, the step size is too small, or others, stop the optimization
-            if es.stop():
-                break
+            stop = es.stop()
+            if stop and ("flatfitness" in stop or "stagnation" in stop):
+                # restart with larger pop and sigma
+                popsize = int(popsize * 2)
+                sigma0_scaled *= 2.0
+                es = cma.CMAEvolutionStrategy(es.result.xbest, sigma0_scaled, {**opts, "popsize": popsize})
+                continue
 
         # Get the best across all generations
         res = es.result
 
-        print(f"the trend of the best manipulability is: {best_manip_trend}")
+        # Get the complete time
+        complete_time = time.time() - start_time_complete
+        print(f"\nOptimization completed in {complete_time:.2f} seconds ({complete_time/60:.2f} minutes, {complete_time/3600:.2f} hours).")
 
         #! Save all the data
         # Fitness trend (primary_leader)
@@ -532,7 +547,7 @@ if __name__ == "__main__":
         df_external.to_csv(os.path.join(save_dir, "results/data", "best_external_torques.csv"), index=False)
 
         # Best configuration trend
-        df_x = pd.DataFrame(best_solutions, columns=["x", "y", "theta_x", "q01", "q02", "q03", "q04", "q05", "q06"])
+        df_x = pd.DataFrame(best_solutions, columns=["x_b", "y_b", "theta_x_b", "x_t", "y_t", "theta_x_t", "x_p", "y_p", "q01", "q02", "q03", "q04", "q05", "q06"])
         df_x.to_csv(os.path.join(save_dir, "results/data", f"best_solutions.csv"), index=False)
 
         # Status of each individual in each generation
@@ -558,7 +573,7 @@ if __name__ == "__main__":
             mujoco.mj_resetData(model, data)
 
             # Set robot base
-            set_body_pose(model, data, base_body_id, [best_solutions[-1][0], best_solutions[-1][1], 0.2], euler_to_quaternion(best_solutions[-1][2], 0, 0)) 
+            set_body_pose(model, data, base_body_id, [best_solutions[-1][0], best_solutions[-1][1], 0.1], euler_to_quaternion(best_solutions[-1][2], 0, 0)) 
             
             # Set piece
             set_body_pose(model, data, piece_body_id, [best_solutions[-1][6], best_solutions[-1][7], 0.0], euler_to_quaternion(0, 0, 0))
