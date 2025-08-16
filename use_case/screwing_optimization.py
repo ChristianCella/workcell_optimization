@@ -32,6 +32,11 @@ from transformations import rotm_to_quaternion, euler_to_quaternion, get_world_w
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
+# Append the path to 'Motion_planning'
+planning_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../tests/Motion_planning'))
+sys.path.append(planning_dir)
+from rrt_connect import RRTConnectPlanner, MuJoCoCollisionChecker, clamp_to_limits, prune_near_duplicates, resample_path_by_count, workspace_length_simple
+
 # Load a global solver for IKFlow
 global_fast_ik_solver = FastIKFlowSolver()
 
@@ -53,6 +58,34 @@ def make_simulator(local_wrenches):
     model = mujoco.MjModel.from_xml_path(model_path)
     data  = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
+
+    #! Planner instance
+    plan_joint_ids = np.arange(6, dtype=int)
+    jnt_range = model.jnt_range[plan_joint_ids].copy()
+    lb = jnt_range[:, 0]
+    ub = jnt_range[:, 1]
+    w_diff = np.ones_like(lb)
+    if parameters.verbose:
+        print(f"{fonts.cyan}The lower limits are {lb}{fonts.reset}")
+        print(f"{fonts.yellow}The upper limits are {ub}{fonts.reset}")
+        print(f"{fonts.green}The weights for the secondary objective are {w_diff}{fonts.reset}")
+    m  = 0.5 * (lb + ub)
+    s  = 0.5 * (ub - lb)
+    base_qpos = data.qpos.copy()
+    weights = np.ones(6, dtype=float)
+    revolute_mask = np.array([model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE for j in plan_joint_ids], dtype=bool)
+    cc = MuJoCoCollisionChecker(model, base_qpos=base_qpos, joint_ids=plan_joint_ids)
+    planner = RRTConnectPlanner(
+        collision_checker=cc,
+        joint_limits=jnt_range,
+        step_size=0.15,                 
+        per_joint_check_step=0.2,       
+        goal_tolerance=0.03,            
+        goal_bias=0.15,
+        max_iters=500,
+        weights=weights,
+        revolute_mask=revolute_mask
+    )
 
     # Get body/site IDs
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
@@ -80,7 +113,7 @@ def make_simulator(local_wrenches):
         set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
         # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-        _, _, A_ee_t1 = get_homogeneous_matrix(float(params[3]), float(params[4]), 0, np.degrees(float(params[5])), 0, 0)
+        _, _, A_ee_t1 = get_homogeneous_matrix(float(params[3]), float(params[4]), 0.03, np.degrees(float(params[5])), 0, 0)
         set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
         # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
@@ -106,12 +139,13 @@ def make_simulator(local_wrenches):
         H_mat = np.diag(gear_ratios) # Diagonal matrix for gear artios
         Gamma_mat = np.diag(max_torques) # Diagonal matrix for max torques
         S = np.linalg.inv(H_mat.T) @ np.linalg.inv(Gamma_mat.T) @ np.linalg.inv(Gamma_mat) @ np.linalg.inv(H_mat) #! S = H^-T * Gamma^-T * Gamma^-1 * H^-1
-        # S = np.eye(6) # Proxy
 
         # Start the optimization for the individual
         norms = []
         best_configs = []
-        best_manipulability = []
+        best_primary_followers = []
+        best_secondary_followers = []
+        best_followers = []
         best_gravity_torques = [] 
         best_external_torques = [] 
         best_alpha = []
@@ -134,14 +168,17 @@ def make_simulator(local_wrenches):
                 best_alpha.append(1e2)
                 best_beta.append(1e2)
                 best_gamma.append(1e2)
-                best_manipulability.append(1e2)
+                best_followers.append(1e6)
+                best_primary_followers.append(1e6)
+                best_secondary_followers.append(1e6)
 
             # The fitness will be infinite in this case
-            fitness = float(np.mean(norms))
+            fit_tau = float(np.mean(norms))
+            fit_path = 1e2 / (2 * np.pi * 0.85)
             individual_status.append(1) # 1 = layout problem 
             individual_status.append(1000) # Placeholder for impossibility to compute IK
             individual_status.append(1000) # Placeholder for impossibility to verify if IK has collisions
-            return fitness, best_configs, best_manipulability, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma
+            return fit_tau, fit_path, best_configs, best_followers, best_primary_followers, best_secondary_followers, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma
 
         else:
             if parameters.verbose: print(f"Initial layout has no collisions. Proceeding with the optimization.")
@@ -187,6 +224,8 @@ def make_simulator(local_wrenches):
                 fk_np = fk_ok.cpu().numpy()
                 cost = 1e6
                 best_cost = 1e6
+                best_man = 1e6
+                best_q_diff = 1e6
 
                 # Maybe, no IK solution is available (i.e., the piece is unreachable since outside the workspace)
                 best_q = np.zeros(6) # This variable will be overwritten
@@ -195,8 +234,7 @@ def make_simulator(local_wrenches):
                     counter_pieces_ik_aval += 1 # Increase the counter
 
                     for i, (q, x) in enumerate(zip(sols_np, fk_np), 1):
-                        if parameters.verbose:
-                            print(f"[OK] sol {i:2d}: q={np.round(q,3)}  →  x={np.round(x,3)}")
+                        if parameters.verbose: print(f"[OK] sol {i:2d}: q={np.round(q,3)}  →  x={np.round(x,3)}")
 
                         # apply joint solution, but do not display it
                         data.qpos[:6] = q.tolist()
@@ -204,13 +242,24 @@ def make_simulator(local_wrenches):
                         #viewer.sync()
                         #time.sleep(parameters.show_pose_duration)
 
-                        # Collisions and 'inverse' manipulability
-
+                        # ! Collisions, 'inverse' manipulability and secondary objective
                         n_cols = get_collisions(model, data, parameters.verbose)
-                        cost = inverse_manipulability(q, model, data, tool_site_id)
 
+                        # Compute the primary objective
+                        f_delta_j = inverse_manipulability(q.copy(), model, data, tool_site_id)
+
+                        # ! Compute the secondary objective
+                        diff = q.copy() - m
+                        f_q = float(np.sum(w_diff * (diff / s)**2))    # w shape (n,)
+
+                        # Total cost for the j-th follower
+                        cost = 10 * f_delta_j + 0.5 * f_q
+
+                        # Check if better than the current
                         if (cost < best_cost) and (n_cols == 0):
                             best_cost = cost
+                            best_man = f_delta_j
+                            best_q_diff = f_q
                             best_q = q
 
                     # ! If best cost is not equal to infinite
@@ -245,14 +294,15 @@ def make_simulator(local_wrenches):
 
                 # Check on feasibility: if q = np.zeros(6) => IK failed
                 if not np.array_equal(best_q, np.zeros(6)):
-                    #norms.append(np.linalg.norm(tau_tot)) # || tau_tot ||_2 = sqrt(tau1^2 + tau2^2 + ...)
                     norms.append(np.sqrt(alpha + beta + gamma))
                 else:
                     norms.append(1e2) #! Ik not feasible => Drive the algorithm away from this configuration
 
                 # Append the best configuration for this piece
                 best_configs.append(best_q.copy())
-                best_manipulability.append(cost)
+                best_followers.append(best_cost)
+                best_primary_followers.append(best_man)
+                best_secondary_followers.append(best_q_diff)
                 best_gravity_torques.append(tau_g.copy())
                 best_external_torques.append(tau_ext.copy())
 
@@ -266,10 +316,55 @@ def make_simulator(local_wrenches):
             individual_status.append(counter_pieces_ik_aval) 
             individual_status.append(counter_pieces_without_cols) 
 
-            # All the pieces to be screwed have been processed
-            fitness = float(np.mean(norms)) # sum(|| tau_tot ||_2) / N_pieces
-            if parameters.verbose: print(f"For generation {gen} the best configurations are: {best_configs}")
-            return fitness, best_configs, best_manipulability, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma
+            # ! All the pieces to be screwed have been processed 
+            # If all pieces have valid IK solutions
+            if (counter_pieces_without_cols == len(ref_body_ids)) and (counter_pieces_ik_aval == len(ref_body_ids)):
+                total_length = 0
+                q_list_proxy = [q0.copy()] + best_configs.copy()
+                for p in range(len(ref_body_ids) + 1): # 0, 1, 2, 3, 4
+                    h = p+1
+                    if p == len(ref_body_ids): 
+                        h = 0
+                    # Define start and goal
+                    q_start = clamp_to_limits(q_list_proxy[p].copy(), jnt_range)
+                    q_goal  = clamp_to_limits(q_list_proxy[h].copy(), jnt_range)
+
+                    # Set the start joint config
+                    data.qpos[:6] = q_start.tolist()
+                    mujoco.mj_forward(model, data)
+
+                    # Get the path
+                    path, _ = planner.plan(q_start, q_goal, time_budget_s=5.0)
+
+                    if path is not None: #! A path has been found => compute its length
+
+                        # Your existing post-processing
+                        path_pruned = prune_near_duplicates(path, min_step=1e-3,
+                                                            weights=weights, revolute_mask=revolute_mask)
+                        path_uniform = resample_path_by_count(path_pruned, target_points=60,
+                                                            weights=weights, revolute_mask=revolute_mask)        
+
+                        # Compute the path length
+                        path_length = workspace_length_simple(cc, path_uniform, site_id=tool_site_id)
+
+                    else: #! No path found: probably it did not exist
+                        path_length = 5.0
+
+                    # Update the total length
+                    total_length += path_length
+
+            # Impose to infinite the secondary objective
+            else:
+                total_length = 1e2
+
+            # ! The complete fitness is the sum of f_tau and f_path
+            f_path = total_length / (2 * np.pi * 0.85)
+            f_tau = float(np.mean(norms)) 
+            if parameters.verbose:
+                print(f"The primary objective is {f_tau:.4f}")
+                print(f"The secondary objective is {f_path:.4f}")
+                print(f"For generation {gen} the best configurations are: {best_configs}")
+            return f_tau, f_path, best_configs, best_followers, best_primary_followers, best_secondary_followers, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma
 
     return run_simulation, model, data, base_body_id, screwdriver_body_id, piece_body_id, tool_site_id
 
@@ -319,6 +414,8 @@ if __name__ == "__main__":
 
     # Lists containing the trend of the best fitness
     best_fitness_trend = []
+    best_fitnesses_tau_trend = []
+    best_fitnesses_path_trend = []
     best_configs_trend = []
     best_manip_trend = []
     best_gravity_trend = []
@@ -332,23 +429,31 @@ if __name__ == "__main__":
     complete_beta_trend = []
     complete_gamma_trend = []  
     best_individual_idx = [] 
+    best_secondary_fit_trend = []
+    best_range_trend = []
     starting_fitness = 1e2
     
     try:
         start_time_complete = time.time()
         for gen in range(n_iter): #! Loop until the maximum number of generations is reached
-            print(f"Generation of chromosomes number: {gen}")
+            print(f"{fonts.green}Generation of chromosomes number: {gen}{fonts.reset}")
 
             zs = es.ask()
-            sols = [decode(np.array(z)) for z in zs]
+            sols = [decode(np.array(z)) for z in zs] # From a-dimensional to meaningful coordinates
 
             # Compute time for each generation
             start_time = time.time()
 
             # Lists that will contain the results for this generation
+            w_tau = 10
+            w_path = 0.5
+            fitnesses_tau = []
+            fitnesses_path = []
             fitnesses = []
             best_configs = []
             best_manip = []
+            best_secondary_fit = []
+            best_range = []
             best_gravity_torques_gen = []
             best_external_torques_gen = []
             individual_status_gen = []
@@ -356,11 +461,16 @@ if __name__ == "__main__":
             best_beta_gen = []
             best_gamma_gen = []
             for idx, sol in enumerate(sols): #! For each chromosome in the current generation
-                if parameters.verbose: print(f"    • chromosome {idx}: {sol}")
-                fit, best_config, best_man, best_gravity, best_external, individual_status, best_alpha, best_beta, best_gamma = run_sim(sol)
-                fitnesses.append(fit)
+                print(f"{fonts.yellow}    • individual: {idx}{fonts.reset}")
+                if parameters.verbose: print(f"{fonts.cyan}    * variables: {sol}{fonts.reset}")
+                fit_tau, fit_path, best_config, fit_secondary, fit_man, fit_range, best_gravity, best_external, individual_status, best_alpha, best_beta, best_gamma = run_sim(sol)
+                fitnesses_tau.append(fit_tau)
+                fitnesses_path.append(fit_path)
+                fitnesses.append(w_tau * fit_tau + w_path * fit_path)
                 best_configs.append(best_config)
-                best_manip.append(best_man)
+                best_secondary_fit.append(fit_secondary)
+                best_manip.append(fit_man)
+                best_range.append(fit_range)
                 best_gravity_torques_gen.append(best_gravity)
                 best_external_torques_gen.append(best_external)
                 individual_status_gen.append(individual_status)
@@ -383,7 +493,9 @@ if __name__ == "__main__":
             best_individual_idx.append(i_best)
             x_b, y_b, theta_x_b, x_t, y_t, theta_x_t, x_p, y_p, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b = sols[i_best][:14]
             final_best_configs = best_configs[i_best] # Best joint configs for the current generation
+            final_best_secondary = best_secondary_fit[i_best]
             final_best_manip = best_manip[i_best]
+            final_best_range = best_range[i_best]
             if parameters.verbose: print(f"The best configurations for generation {gen} is: {final_best_configs}")
 
             # Set the robot base to the best solution
@@ -395,7 +507,7 @@ if __name__ == "__main__":
             mujoco.mj_forward(model, data)
 
             # Set the tool to the best position
-            set_body_pose(model, data, screwdriver_body_id, [x_t, y_t, 0.0], euler_to_quaternion(theta_x_t, 0, 0)) 
+            set_body_pose(model, data, screwdriver_body_id, [x_t, y_t, 0.03], euler_to_quaternion(theta_x_t, 0, 0)) 
             mujoco.mj_forward(model, data)
             if viewer: viewer.sync()
 
@@ -409,11 +521,15 @@ if __name__ == "__main__":
             if min(fitnesses) < starting_fitness:
                 starting_fitness = min(fitnesses)
                 best_fitness_trend.append(starting_fitness)
+                best_fitnesses_tau_trend.append(fitnesses_tau[i_best])
+                best_fitnesses_path_trend.append(fitnesses_path[i_best])
                 best_solutions.append((x_b, y_b, theta_x_b, x_t, y_t, theta_x_t, x_p, y_p, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b))
                 best_configs_trend.append(final_best_configs)
                 best_manip_trend.append(final_best_manip)
                 best_gravity_trend.append(best_gravity_torques_gen[i_best])
                 best_external_trend.append(best_external_torques_gen[i_best])
+                best_secondary_fit_trend.append(final_best_secondary) # f_F
+                best_range_trend.append(final_best_range)
                 simulation_status.append(individual_status_gen)
                 best_alpha_trend.append(best_alpha_gen[i_best])
                 best_beta_trend.append(best_beta_gen[i_best])
@@ -421,9 +537,13 @@ if __name__ == "__main__":
             else:
                 if best_fitness_trend:  # Only proceed if the list is non-empty
                     best_fitness_trend.append(best_fitness_trend[-1])
+                    best_fitnesses_tau_trend.append(best_fitnesses_tau_trend[-1])
+                    best_fitnesses_path_trend.append(best_fitnesses_path_trend[-1])
                     best_solutions.append(best_solutions[-1])
                     best_configs_trend.append(best_configs_trend[-1])
                     best_manip_trend.append(best_manip_trend[-1])
+                    best_secondary_fit_trend.append(best_secondary_fit_trend[-1])
+                    best_range_trend.append(best_range_trend[-1])
                     best_gravity_trend.append(best_gravity_trend[-1])
                     best_external_trend.append(best_external_trend[-1])
                     simulation_status.append(individual_status_gen)
@@ -433,9 +553,13 @@ if __name__ == "__main__":
                 else:
                     print(f"The lists were empty. Appending None to proceed.")
                     best_fitness_trend.append(starting_fitness)
+                    best_fitnesses_tau_trend.append(None)
+                    best_fitnesses_path_trend.append(None)
                     best_solutions.append(None)
                     best_configs_trend.append(None)
                     best_manip_trend.append(None)
+                    best_secondary_fit_trend.append(None)
+                    best_range_trend.append(None)
                     best_gravity_trend.append(None)
                     best_external_trend.append(None)
                     best_alpha_trend.append(None)
@@ -465,11 +589,28 @@ if __name__ == "__main__":
         print(f"\nOptimization completed in {complete_time:.2f} seconds ({complete_time/60:.2f} minutes, {complete_time/3600:.2f} hours).")
 
         #! Save all the data
-        # Fitness trend (primary_leader)
+        # f_L trend (primary_leader)
         df_fit = pd.DataFrame(best_fitness_trend, columns=["fitness"])
-        df_fit.to_csv(os.path.join(save_dir, "results/data", f"best_primary_leader.csv"), index=False)
+        df_fit.to_csv(os.path.join(save_dir, "results/data", f"fitness_fL.csv"), index=False)
 
-        # Manipulability trend (primary-followers)
+        df_fit = pd.DataFrame(best_fitnesses_tau_trend, columns=["fitness"])
+        df_fit.to_csv(os.path.join(save_dir, "results/data", f"Primary_leader.csv"), index=False)
+
+        df_fit = pd.DataFrame(best_fitnesses_path_trend, columns=["fitness"])
+        df_fit.to_csv(os.path.join(save_dir, "results/data", f"Secondary_leader.csv"), index=False)
+
+        # Follower problems scalarized trend
+        n_pieces = len(best_secondary_fit_trend[0])
+        cols = [f"piece{p+1}" for p in range(n_pieces)]
+
+        df = pd.DataFrame(best_secondary_fit_trend, columns=cols)
+        df.insert(0, "generation", range(len(best_secondary_fit_trend)))  # optional but handy
+
+        out_dir = os.path.join(save_dir, "results", "data")
+        os.makedirs(out_dir, exist_ok=True)
+        df.to_csv(os.path.join(out_dir, "fitness_followers.csv"), index=False)
+
+        # Primary indicator follower (manipulability)
         n_pieces = len(best_manip_trend[0])
         cols = [f"piece{p+1}" for p in range(n_pieces)]
 
@@ -479,6 +620,17 @@ if __name__ == "__main__":
         out_dir = os.path.join(save_dir, "results", "data")
         os.makedirs(out_dir, exist_ok=True)
         df.to_csv(os.path.join(out_dir, "best_primary_followers.csv"), index=False)
+
+        # Secondary indicator follower (center in the range)
+        n_pieces = len(best_range_trend[0])
+        cols = [f"piece{p+1}" for p in range(n_pieces)]
+
+        df = pd.DataFrame(best_range_trend, columns=cols)
+        df.insert(0, "generation", range(len(best_range_trend)))  # optional but handy
+
+        out_dir = os.path.join(save_dir, "results", "data")
+        os.makedirs(out_dir, exist_ok=True)
+        df.to_csv(os.path.join(out_dir, "best_secondary_followers.csv"), index=False)
 
         # Save the complete trends of alpha beta and gamma
         def save_trend_wide(trend_data, filename):
@@ -579,7 +731,7 @@ if __name__ == "__main__":
             set_body_pose(model, data, piece_body_id, [best_solutions[-1][6], best_solutions[-1][7], 0.0], euler_to_quaternion(0, 0, 0))
 
             # Set tool
-            set_body_pose(model, data, screwdriver_body_id, [best_solutions[-1][3], best_solutions[-1][4], 0.0], euler_to_quaternion(best_solutions[-1][5], 0, 0))
+            set_body_pose(model, data, screwdriver_body_id, [best_solutions[-1][3], best_solutions[-1][4], 0.03], euler_to_quaternion(best_solutions[-1][5], 0, 0))
 
             # Set robot joints
             q0_final = np.array([best_solutions[-1][8], best_solutions[-1][9], best_solutions[-1][10],
@@ -593,6 +745,9 @@ if __name__ == "__main__":
             for idx in range(len(local_wrenches)):
                 print(f"Layout for piece {idx+1}")
                 data.qpos[:6] = best_configs_trend[-1][idx][:6].tolist()
+                data.qvel[:] = 0
+                data.qacc[:] = 0
+                data.ctrl[:] = 0
                 mujoco.mj_forward(model, data)
                 viewer.sync()
 

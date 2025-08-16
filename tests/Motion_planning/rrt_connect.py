@@ -507,6 +507,10 @@ def workspace_length_simple(cc: MuJoCoCollisionChecker, path, site_id: int):
 #! Test code
 if __name__ == "__main__":
 
+    # Variables
+    display_gui = True
+    n_pieces = 4
+
     # Path setup 
     tool_filename = "screwdriver.xml"
     robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
@@ -564,15 +568,12 @@ if __name__ == "__main__":
     cc = MuJoCoCollisionChecker(model, base_qpos=base_qpos, joint_ids=plan_joint_ids)
 
     # Joint configurations
-    q0       = np.array([1.93, -2.98, 1.41, -1.49, -1.56, 2.44])
-    q_screw1 = np.array([-5.835175, 4.402239, -1.5875205, -1.7714313, -4.6415086, -6.1713014])
-    q_screw2 = np.array([2.1754599, 3.9184961, -2.262606, -4.605288, 5.1739826, 4.9312534])
-    q_screw3 = np.array([-3.39, 4.97, 1.46, 5.25, -1.1965, -0.91])
-    q_screw4 = np.array([1.36, -2.36, -0.94, -2.58, -5.29, 3.82])
-
-    # Define start and goal
-    q_start = clamp_to_limits(q_screw1, jnt_range)
-    q_goal  = clamp_to_limits(q_screw2, jnt_range)
+    q0 = np.array([1.93, -2.98, 1.41, -1.49, -1.56, 2.44])
+    q1 = np.array([-5.835175, 4.402239, -1.5875205, -1.7714313, -4.6415086, -6.1713014])
+    q2 = np.array([2.1754599, 3.9184961, -2.262606, -4.605288, 5.1739826, 4.9312534])
+    q3 = np.array([-3.39, 4.97, 1.46, 5.25, -1.1965, -0.91])
+    q4 = np.array([1.36, -2.36, -0.94, -2.58, -5.29, 3.82])
+    q_vec = [q0, q1, q2, q3, q4]
 
     # set the robot pose
     _, _, A_w_b = get_homogeneous_matrix(0.2664672921246696, 0.068153650497219, 0, 0, 0, 0)
@@ -596,16 +597,6 @@ if __name__ == "__main__":
     # End-effector with respect to wrist3 (NOTE: this is always fixed)
     _, _, A_wl3_ee = get_homogeneous_matrix(0, 0.1, 0, -90, 0, 0)
 
-    # Set the start joint config
-    data.qpos[:6] = q_start.tolist()
-    mujoco.mj_forward(model, data)
-
-    # Quick sanity checks
-    if cc.in_collision(q_start):
-        print("Start is in collision; adjust q_start.")
-    if cc.in_collision(q_goal):
-        print("Goal is in collision; adjust q_goal.")
-
     # Planner
     planner = RRTConnectPlanner(
         collision_checker=cc,
@@ -619,42 +610,36 @@ if __name__ == "__main__":
         revolute_mask=revolute_mask
     )
 
-    path, stats = planner.plan(q_start, q_goal, time_budget_s=5.0)
-    if path is None:
-        print("Planning failed.", stats)
-    else:
-        print(f"Planning succeeded in {stats['time_s']:.3f}s, iters={stats['iters']}, "
-              f"nodes(start)={stats['nodes_start']} nodes(goal)={stats['nodes_goal']}")
-        print(f"Raw path length: {len(path)} waypoints")
+    # Tests a for loop
+    for i in range(n_pieces + 1): # 0, 1, 2, 3, 4
+        k = i + 1
+        if i == n_pieces:
+            k = 0
+        # Define start and goal
+        q_start = clamp_to_limits(q_vec[i], jnt_range)
+        q_goal  = clamp_to_limits(q_vec[k], jnt_range)
+
+        # Set the start joint config
+        data.qpos[:6] = q_start.tolist()
+        mujoco.mj_forward(model, data)
+
+        path, stats = planner.plan(q_start, q_goal, time_budget_s=5.0)
 
         # Enforce the path to be start -> goal
         if np.linalg.norm(path[0] - q_start) > np.linalg.norm(path[-1] - q_start):
             path.reverse()
 
-        # ==================== NEW: singularity-aware optimization ====================
-        # TUNE alpha/beta/gamma as needed. Start with (1.0, 1e-2, 1.0).
-        '''
-        path_opt = optimize_path_against_singularity(
-            path, cc, joint_limits=jnt_range, site_id=tool_site_id,
-            weights=weights, revolute_mask=revolute_mask,
-            alpha=1.0, beta=1e-2, gamma=1.0,
-            step_init=0.3, step_shrink=0.5,
-            passes=1, iters_per_waypoint=5,
-            per_joint_check_step=0.2   # finer during optimization
-        )
-        '''
-        # ============================================================================
-
         # Your existing post-processing
         path_pruned = prune_near_duplicates(path, min_step=1e-3,
                                             weights=weights, revolute_mask=revolute_mask)
         path_uniform = resample_path_by_count(path_pruned, target_points=60,
-                                              weights=weights, revolute_mask=revolute_mask)
-        
+                                              weights=weights, revolute_mask=revolute_mask)        
+
         # Compute the path length
         L_ee_simple = workspace_length_simple(cc, path_uniform, site_id=tool_site_id)
-        print(f"End-effector length (simple): {L_ee_simple:.4f} m")
+        print(f"Path {i} length (simple): {L_ee_simple:.4f} m")
 
+    if display_gui:
         # Launch the MuJoCo viewer
         with mujoco.viewer.launch_passive(model, data) as viewer:
             input("Press enter to start ...")
