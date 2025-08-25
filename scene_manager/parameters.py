@@ -19,15 +19,29 @@ class VisualRedundancy:
 
 
 @dataclass
-class TxtUseCase:
-    verbose: bool = False
+class ScrewingCMAES:
+
+    # Control variables
+    verbose: bool = False # Display messages
+    show_pose_duration: int = 0.05  # Seconds to show each pose
+    activate_gui : bool = True  # Activate the GUI for visualization
+    csv_directory: str = "screwing/cma_es_ikflow"  # Directory to save CSV files
+
+    # Ikflow variables
     N_samples: int = 25  # Samples per 'discretized' pose configuration
     N_disc: int = 90  # Number of discrete configurations to test (rotational sweep)
-    show_pose_duration: int = 0.05  # Seconds to show each pose
-    activate_gui : bool = True  # Whether to activate the GUI for visualization
+    
+    # cma-es variables
     x0: np.ndarray = field(default_factory=lambda: 
                            np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.2, np.radians(100), np.radians(-95), 
                                      np.radians(100), np.radians(-95), np.radians(-95), np.radians(180)]))  # initial mean mu
     sigma0 : float = 1.5  # initial std sigma
     popsize: int = 40  # number of individuals
     n_iter: int = 100  # number of iterations
+
+@dataclass
+class Ur5eRobot:
+    nu: int = 6 # Number of joints
+    gear_ratios: np.ndarray = field(default_factory=lambda: np.array([100, 100, 100, 100, 100, 100]))
+    max_torques: np.ndarray = field(default_factory=lambda: np.array([1.50, 1.50, 1.50, 0.28, 0.28, 0.28])) # Those on the motors (not the joints)
+    robot_reach: float = 0.85 # Radius of the maximum circle

@@ -20,8 +20,9 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
 # Append the path to 'scene_manager'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
-from parameters import TxtUseCase
-parameters = TxtUseCase()
+from parameters import ScrewingCMAES, Ur5eRobot
+parameters = ScrewingCMAES()
+robot_parameters = Ur5eRobot()
 from create_scene import create_scene
 
 # Append the path to 'utils'
@@ -60,20 +61,24 @@ def make_simulator(local_wrenches):
     mujoco.mj_resetData(model, data)
 
     #! Planner instance
-    plan_joint_ids = np.arange(6, dtype=int)
+    plan_joint_ids = np.arange(robot_parameters.nu, dtype=int)
     jnt_range = model.jnt_range[plan_joint_ids].copy()
-    lb = jnt_range[:, 0]
-    ub = jnt_range[:, 1]
+    lb = jnt_range[:, 0] # Lower bounds
+    ub = jnt_range[:, 1] # Upper bounds
     w_diff = np.ones_like(lb)
+
     if parameters.verbose:
         print(f"{fonts.cyan}The lower limits are {lb}{fonts.reset}")
         print(f"{fonts.yellow}The upper limits are {ub}{fonts.reset}")
-        print(f"{fonts.green}The weights for the secondary objective are {w_diff}{fonts.reset}")
-    m  = 0.5 * (lb + ub)
-    s  = 0.5 * (ub - lb)
+        print(f"{fonts.green}The weights for the joints are {w_diff}{fonts.reset}")
+
+    m  = 0.5 * (lb + ub) # Midpoints
+    s  = 0.5 * (ub - lb) # Half-ranges
     base_qpos = data.qpos.copy()
-    weights = np.ones(6, dtype=float)
+    weights = np.ones(robot_parameters.nu, dtype=float) # Weights to prefer certain joints during motion planning
     revolute_mask = np.array([model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE for j in plan_joint_ids], dtype=bool)
+
+    # Create the collision checker and planner
     cc = MuJoCoCollisionChecker(model, base_qpos=base_qpos, joint_ids=plan_joint_ids)
     planner = RRTConnectPlanner(
         collision_checker=cc,
@@ -102,7 +107,7 @@ def make_simulator(local_wrenches):
     #! This method is run for every individual of a certain generation, for all generations
     def run_simulation(params: np.ndarray) -> float:
 
-        mujoco.mj_resetData(model, data) #! Reset the simulation data
+        mujoco.mj_resetData(model, data) #! Reset the simulation data => NEVER forget
 
         # Set the new robot base (matrix A^w_b)
         _, _, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0.1, np.degrees(float(params[2])), 0, 0)
@@ -133,12 +138,12 @@ def make_simulator(local_wrenches):
         mujoco.mj_forward(model, data)
         if parameters.activate_gui: viewer.sync()
 
-        # Matrix S
-        gear_ratios = [100, 100, 100, 100, 100, 100]
-        max_torques = [1.50, 1.50, 1.50, 0.28, 0.28, 0.28] #! Those on the motors (not the joints)
-        H_mat = np.diag(gear_ratios) # Diagonal matrix for gear artios
+        # Matrix S = H^-T * Gamma^-T * Gamma^-1 * H^-1
+        gear_ratios = robot_parameters.gear_ratios
+        max_torques = robot_parameters.max_torques 
+        H_mat = np.diag(gear_ratios) # Diagonal matrix for gear ratios
         Gamma_mat = np.diag(max_torques) # Diagonal matrix for max torques
-        S = np.linalg.inv(H_mat.T) @ np.linalg.inv(Gamma_mat.T) @ np.linalg.inv(Gamma_mat) @ np.linalg.inv(H_mat) #! S = H^-T * Gamma^-T * Gamma^-1 * H^-1
+        S = np.linalg.inv(H_mat.T) @ np.linalg.inv(Gamma_mat.T) @ np.linalg.inv(Gamma_mat) @ np.linalg.inv(H_mat)
 
         # Start the optimization for the individual
         norms = []
@@ -162,9 +167,9 @@ def make_simulator(local_wrenches):
             # Append values that you can associate to this failure (bad initial layout)
             for j in range(len(ref_body_ids)):
                 norms.append(1e2)
-                best_configs.append(np.zeros(6)) 
-                best_gravity_torques.append(1e2 * np.ones(6))
-                best_external_torques.append(1e2 * np.ones(6))
+                best_configs.append(np.zeros(robot_parameters.nu)) 
+                best_gravity_torques.append(1e2 * np.ones(robot_parameters.nu))
+                best_external_torques.append(1e2 * np.ones(robot_parameters.nu))
                 best_alpha.append(1e2)
                 best_beta.append(1e2)
                 best_gamma.append(1e2)
@@ -174,7 +179,7 @@ def make_simulator(local_wrenches):
 
             # The fitness will be infinite in this case
             fit_tau = float(np.mean(norms))
-            fit_path = 1e2 / (2 * np.pi * 0.85)
+            fit_path = 1e2 / (2 * np.pi * robot_parameters.robot_reach)
             individual_status.append(1) # 1 = layout problem 
             individual_status.append(1000) # Placeholder for impossibility to compute IK
             individual_status.append(1000) # Placeholder for impossibility to verify if IK has collisions
@@ -196,8 +201,7 @@ def make_simulator(local_wrenches):
                 rotm = data.xmat[ref_body_ids[j]].reshape(3, 3)
                 theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=True)
 
-                #! Solve IK for the speficic piece with ikflow
-                #fast_ik_solver = FastIKFlowSolver() 
+                #! Solve IK for the specific piece with ikflow
                 sols_ok, fk_ok = [], []
                 for i in range(parameters.N_disc): # 0, 1, 2, ... N_disc-1
                     
@@ -213,7 +217,7 @@ def make_simulator(local_wrenches):
                     tgt_tensor = torch.from_numpy(target.astype(np.float32))
 
                     # Solve the IK problem for the discretized pose
-                    sols_disc, fk_disc = solve_ik_fast(tgt_tensor, N = parameters.N_samples, fast_solver=global_fast_ik_solver) # Find N solutions for this target
+                    sols_disc, fk_disc = solve_ik_fast(tgt_tensor, N=parameters.N_samples, fast_solver=global_fast_ik_solver) # Find N solutions for this target
                     sols_ok.append(sols_disc)
                     fk_ok.append(fk_disc)
 
@@ -228,7 +232,7 @@ def make_simulator(local_wrenches):
                 best_q_diff = 1e6
 
                 # Maybe, no IK solution is available (i.e., the piece is unreachable since outside the workspace)
-                best_q = np.zeros(6) # This variable will be overwritten
+                best_q = np.zeros(robot_parameters.nu) # This variable will be overwritten
                 if len(sols_np) > 0: #! There are IK solutions available
 
                     counter_pieces_ik_aval += 1 # Increase the counter
@@ -237,7 +241,7 @@ def make_simulator(local_wrenches):
                         if parameters.verbose: print(f"[OK] sol {i:2d}: q={np.round(q,3)}  →  x={np.round(x,3)}")
 
                         # apply joint solution, but do not display it
-                        data.qpos[:6] = q.tolist()
+                        data.qpos[:robot_parameters.nu] = q.tolist()
                         mujoco.mj_forward(model, data)
                         #viewer.sync()
                         #time.sleep(parameters.show_pose_duration)
@@ -245,12 +249,12 @@ def make_simulator(local_wrenches):
                         # ! Collisions, 'inverse' manipulability and secondary objective
                         n_cols = get_collisions(model, data, parameters.verbose)
 
-                        # Compute the primary objective
+                        # Compute the primary objective for each follower
                         f_delta_j = inverse_manipulability(q.copy(), model, data, tool_site_id)
 
-                        # ! Compute the secondary objective
+                        # Compute the secondary objective for each follower
                         diff = q.copy() - m
-                        f_q = float(np.sum(w_diff * (diff / s)**2))    # w shape (n,)
+                        f_q = float(np.sum(w_diff * (diff / s)**2)) 
 
                         # Total cost for the j-th follower
                         cost = 10 * f_delta_j + 0.5 * f_q
@@ -267,16 +271,17 @@ def make_simulator(local_wrenches):
                         counter_pieces_without_cols += 1 # Increase the counter
         
                 else: #! No IK solution found, set the best configuration to the default one (all joints at 0)  
-                    best_q = np.zeros(6)
-                
+                    best_q = np.zeros(robot_parameters.nu) 
+               
                 # Udate the viewer with the best configuration found
-                data.qpos[:6] = best_q.tolist()
+                data.qpos[:robot_parameters.nu] = best_q.tolist()
                 data.qvel[:] = 0  # clear velocities
                 data.qacc[:] = 0  # clear accelerations
                 data.ctrl[:] = 0  # (if using actuators, may help avoid torque pollution)
                 mujoco.mj_forward(model, data)
-                if parameters.activate_gui: viewer.sync()
-                if parameters.activate_gui: time.sleep(1.0) # If this is not present, you will never have time to see also the 'optimal' config. for the final piece
+                if parameters.activate_gui: 
+                    viewer.sync()
+                    time.sleep(1.0) 
 
                 # ! Compute the torques for the best configuration
                 J = compute_jacobian(model, data, tool_site_id)
@@ -285,7 +290,6 @@ def make_simulator(local_wrenches):
                 R_world_to_tool = R_tool_to_world.T # Rotation world => tool
                 world_wrench = get_world_wrench(R_world_to_tool, local_wrenches[j]) #! Wrench in world frame
                 tau_ext = J.T @ world_wrench
-                #tau_tot = tau_g + tau_ext
 
                 # Compute alpha, beta and gammma
                 alpha = world_wrench.T @ J @ S @ J.T @ world_wrench
@@ -293,7 +297,7 @@ def make_simulator(local_wrenches):
                 gamma = tau_g.T @ S @ tau_g
 
                 # Check on feasibility: if q = np.zeros(6) => IK failed
-                if not np.array_equal(best_q, np.zeros(6)):
+                if not np.array_equal(best_q, np.zeros(robot_parameters.nu)):
                     norms.append(np.sqrt(alpha + beta + gamma))
                 else:
                     norms.append(1e2) #! Ik not feasible => Drive the algorithm away from this configuration
@@ -322,9 +326,10 @@ def make_simulator(local_wrenches):
                 total_length = 0
                 q_list_proxy = [q0.copy()] + best_configs.copy()
                 for p in range(len(ref_body_ids) + 1): # 0, 1, 2, 3, 4
-                    h = p+1
+                    h = p + 1
                     if p == len(ref_body_ids): 
                         h = 0
+
                     # Define start and goal
                     q_start = clamp_to_limits(q_list_proxy[p].copy(), jnt_range)
                     q_goal  = clamp_to_limits(q_list_proxy[h].copy(), jnt_range)
@@ -333,7 +338,7 @@ def make_simulator(local_wrenches):
                     data.qpos[:6] = q_start.tolist()
                     mujoco.mj_forward(model, data)
 
-                    # Get the path
+                    # Plan the path
                     path, _ = planner.plan(q_start, q_goal, time_budget_s=5.0)
 
                     if path is not None: #! A path has been found => compute its length
@@ -347,7 +352,7 @@ def make_simulator(local_wrenches):
                         # Compute the path length
                         path_length = workspace_length_simple(cc, path_uniform, site_id=tool_site_id)
 
-                    else: #! No path found: probably it did not exist
+                    else: #! No path found: probably it did not exist => put a reasonably high length
                         path_length = 5.0
 
                     # Update the total length
@@ -358,7 +363,7 @@ def make_simulator(local_wrenches):
                 total_length = 1e2
 
             # ! The complete fitness is the sum of f_tau and f_path
-            f_path = total_length / (2 * np.pi * 0.85)
+            f_path = total_length / (2 * np.pi * robot_parameters.robot_reach)
             f_tau = float(np.mean(norms)) 
             if parameters.verbose:
                 print(f"The primary objective is {f_tau:.4f}")
@@ -374,7 +379,7 @@ if __name__ == "__main__":
     # Directory to save data
     save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
-    #! This will become a query to a database
+    # Reasonable values of the wrench
     local_wrenches = [
         (np.array([0, 0, -30, 0, 0, -20])),
         (np.array([0, 0, -30, 0, 0, -20])),
@@ -394,9 +399,9 @@ if __name__ == "__main__":
     def encode(x):  return (x - center) / scale
     def decode(z):  return center + scale * z
 
-    x0_scaled    = encode(np.array(parameters.x0))
+    x0_scaled = encode(np.array(parameters.x0))
     popsize = parameters.popsize
-    sigma0_scaled = parameters.sigma0           # relative step size in normalized space
+    sigma0_scaled = parameters.sigma0
     opts = {"popsize": popsize, "bounds": [[-1]*14, [1]*14], "verb_disp": 0}
     n_iter = parameters.n_iter
 
@@ -445,8 +450,6 @@ if __name__ == "__main__":
             start_time = time.time()
 
             # Lists that will contain the results for this generation
-            w_tau = 10
-            w_path = 0.5
             fitnesses_tau = []
             fitnesses_path = []
             fitnesses = []
@@ -460,13 +463,14 @@ if __name__ == "__main__":
             best_alpha_gen = []
             best_beta_gen = []
             best_gamma_gen = []
+
             for idx, sol in enumerate(sols): #! For each chromosome in the current generation
                 print(f"{fonts.yellow}    • individual: {idx}{fonts.reset}")
                 if parameters.verbose: print(f"{fonts.cyan}    * variables: {sol}{fonts.reset}")
                 fit_tau, fit_path, best_config, fit_secondary, fit_man, fit_range, best_gravity, best_external, individual_status, best_alpha, best_beta, best_gamma = run_sim(sol)
                 fitnesses_tau.append(fit_tau)
                 fitnesses_path.append(fit_path)
-                fitnesses.append(w_tau * fit_tau + w_path * fit_path)
+                fitnesses.append(10 * fit_tau + 0.5 * fit_path)
                 best_configs.append(best_config)
                 best_secondary_fit.append(fit_secondary)
                 best_manip.append(fit_man)
@@ -572,9 +576,10 @@ if __name__ == "__main__":
             complete_beta_trend.append(best_beta_gen)
             complete_gamma_trend.append(best_gamma_gen)
 
-            #! In case that: the fitness does not improve for too long, the step size is too small, or others, stop the optimization
+            #! In case that: the fitness does not improve for too long, the step size is too small, or others => stop the optimization
             stop = es.stop()
             if stop and ("flatfitness" in stop or "stagnation" in stop):
+
                 # restart with larger pop and sigma
                 popsize = int(popsize * 2)
                 sigma0_scaled *= 2.0
@@ -591,13 +596,13 @@ if __name__ == "__main__":
         #! Save all the data
         # f_L trend (primary_leader)
         df_fit = pd.DataFrame(best_fitness_trend, columns=["fitness"])
-        df_fit.to_csv(os.path.join(save_dir, "results/data", f"fitness_fL.csv"), index=False)
+        df_fit.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"fitness_fL.csv"), index=False)
 
         df_fit = pd.DataFrame(best_fitnesses_tau_trend, columns=["fitness"])
-        df_fit.to_csv(os.path.join(save_dir, "results/data", f"Primary_leader.csv"), index=False)
+        df_fit.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"Primary_leader.csv"), index=False)
 
         df_fit = pd.DataFrame(best_fitnesses_path_trend, columns=["fitness"])
-        df_fit.to_csv(os.path.join(save_dir, "results/data", f"Secondary_leader.csv"), index=False)
+        df_fit.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"Secondary_leader.csv"), index=False)
 
         # Follower problems scalarized trend
         n_pieces = len(best_secondary_fit_trend[0])
@@ -608,7 +613,7 @@ if __name__ == "__main__":
 
         out_dir = os.path.join(save_dir, "results", "data")
         os.makedirs(out_dir, exist_ok=True)
-        df.to_csv(os.path.join(out_dir, "fitness_followers.csv"), index=False)
+        df.to_csv(os.path.join(out_dir, f"{parameters.csv_directory}", "fitness_followers.csv"), index=False)
 
         # Primary indicator follower (manipulability)
         n_pieces = len(best_manip_trend[0])
@@ -619,7 +624,7 @@ if __name__ == "__main__":
 
         out_dir = os.path.join(save_dir, "results", "data")
         os.makedirs(out_dir, exist_ok=True)
-        df.to_csv(os.path.join(out_dir, "best_primary_followers.csv"), index=False)
+        df.to_csv(os.path.join(out_dir, f"{parameters.csv_directory}", "best_primary_followers.csv"), index=False)
 
         # Secondary indicator follower (center in the range)
         n_pieces = len(best_range_trend[0])
@@ -630,7 +635,7 @@ if __name__ == "__main__":
 
         out_dir = os.path.join(save_dir, "results", "data")
         os.makedirs(out_dir, exist_ok=True)
-        df.to_csv(os.path.join(out_dir, "best_secondary_followers.csv"), index=False)
+        df.to_csv(os.path.join(out_dir, f"{parameters.csv_directory}", "best_secondary_followers.csv"), index=False)
 
         # Save the complete trends of alpha beta and gamma
         def save_trend_wide(trend_data, filename):
@@ -646,7 +651,7 @@ if __name__ == "__main__":
             columns = [f"piece{p+1}_joint{j+1}" for p in range(n_pieces) for j in range(n_joints)]
 
             df = pd.DataFrame(flat_rows, columns=columns)
-            df.to_csv(os.path.join(save_dir, "results/data", filename), index=False)
+            df.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", filename), index=False)
 
         save_trend_wide(complete_alpha_trend, "complete_alpha_trend_wide.csv")
         save_trend_wide(complete_beta_trend, "complete_beta_trend_wide.csv")
@@ -655,7 +660,7 @@ if __name__ == "__main__":
         # Save the list of indices
         df_best = pd.DataFrame({"generation": range(len(best_individual_idx)),
                         "best_individual": best_individual_idx})
-        df_best.to_csv(os.path.join(save_dir, "results/data", f"best_individuals_indices.csv"), index=False)
+        df_best.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"best_individuals_indices.csv"), index=False)
 
 
         # Flatten the best_gravity_trend into rows: [generation, individual, tau1, ..., tau6]
@@ -683,7 +688,7 @@ if __name__ == "__main__":
         columns_grav = [f"tau_g_piece{p}_{j+1}" for p in range(n_pieces) for j in range(n_joints)]
 
         df_gravity = pd.DataFrame(flat_gravity, columns=columns_grav)
-        df_gravity.to_csv(os.path.join(save_dir, "results/data", "best_gravity_torques.csv"), index=False)
+        df_gravity.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", "best_gravity_torques.csv"), index=False)
 
         # ---- External Torques ----
         flat_external = []
@@ -696,11 +701,11 @@ if __name__ == "__main__":
         columns_ext = [f"tau_ext_piece{p}_{j+1}" for p in range(n_pieces) for j in range(n_joints)]
 
         df_external = pd.DataFrame(flat_external, columns=columns_ext)
-        df_external.to_csv(os.path.join(save_dir, "results/data", "best_external_torques.csv"), index=False)
+        df_external.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", "best_external_torques.csv"), index=False)
 
-        # Best configuration trend
+        # Trend of the best layout vector xi
         df_x = pd.DataFrame(best_solutions, columns=["x_b", "y_b", "theta_x_b", "x_t", "y_t", "theta_x_t", "x_p", "y_p", "q01", "q02", "q03", "q04", "q05", "q06"])
-        df_x.to_csv(os.path.join(save_dir, "results/data", f"best_solutions.csv"), index=False)
+        df_x.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", "best_solutions.csv"), index=False)
 
         # Status of each individual in each generation
         stringified_status = [
@@ -709,7 +714,11 @@ if __name__ == "__main__":
         ]
         popsize_string = len(stringified_status[0])
         df_status = pd.DataFrame(stringified_status, columns=[f"ind_{i}" for i in range(popsize_string)])
-        df_status.to_csv(os.path.join(save_dir, "results/data", f"simulation_status.csv"), index=False)
+        df_status.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", "simulation_status.csv"), index=False)
+
+        # Save the best configurations
+        df_configs = pd.DataFrame(best_configs_trend, columns=[f"config_{i}" for i in range(len(best_configs_trend[0]))])
+        df_configs.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", "best_configs.csv"), index=False)
 
         print("\nOptimization terminated:")
         if parameters.verbose:
@@ -740,11 +749,11 @@ if __name__ == "__main__":
             mujoco.mj_forward(model, data)
 
             norms = []
-            gear_ratios = [100, 100, 100, 100, 100, 100]
-            max_torques = [1.50, 1.50, 1.50, 0.28, 0.28, 0.28]
+            gear_ratios = robot_parameters.gear_ratios
+            max_torques = robot_parameters.max_torques
             for idx in range(len(local_wrenches)):
                 print(f"Layout for piece {idx+1}")
-                data.qpos[:6] = best_configs_trend[-1][idx][:6].tolist()
+                data.qpos[:robot_parameters.nu] = best_configs_trend[-1][idx][:robot_parameters.nu].tolist()
                 data.qvel[:] = 0
                 data.qacc[:] = 0
                 data.ctrl[:] = 0
@@ -755,7 +764,7 @@ if __name__ == "__main__":
                 tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
                 J = compute_jacobian(model, data, tool_site_id)
 
-                tau_g = data.qfrc_bias[:6]
+                tau_g = data.qfrc_bias[:robot_parameters.nu]
                 R_tool_to_world = data.site_xmat[tool_site_id].reshape(3, 3) # Rotation tool => world
                 R_world_to_tool = R_tool_to_world.T # Rotation world => tool
                 world_wrench = get_world_wrench(R_world_to_tool, local_wrenches[idx]) #! Wrench in world frame

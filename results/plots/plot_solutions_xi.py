@@ -10,7 +10,7 @@ mpl.rcParams['text.latex.preamble'] = r'\usepackage{amsmath}'
 
 # Load the CSV file
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-dataset_csv_path = os.path.join(base_dir, "data/best_solutions.csv")
+dataset_csv_path = os.path.join(base_dir, "data/screwing/cma_es_ikflow/best_solutions.csv")
 df = pd.read_csv(dataset_csv_path) 
 
 # Plot the x and y base coordinates
