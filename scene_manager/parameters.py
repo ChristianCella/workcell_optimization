@@ -33,9 +33,9 @@ class ScrewingCMAES:
     
     # cma-es variables
     x0: np.ndarray = field(default_factory=lambda: 
-                           np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.2, np.radians(100), np.radians(-95), 
-                                     np.radians(100), np.radians(-95), np.radians(-95), np.radians(180)]))  # initial mean mu
-    sigma0 : float = 1.5  # initial std sigma
+                           np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, np.radians(180), np.radians(-100), 
+                                     np.radians(80), np.radians(-90), np.radians(-90), np.radians(45)]))  # initial mean mu
+    sigma0 : float = 2  # initial std sigma
     popsize: int = 40  # number of individuals
     n_iter: int = 100  # number of iterations
 

@@ -7,9 +7,9 @@ import matplotlib.pyplot as plt
 # Config / paths
 # -----------------------------
 NT = 4          # pieces per individual
-NU = 6          # ν in Eq. (5); set this to the value used in your paper
+NU = 1          # ν in Eq. (5); set this to the value used in your paper
 
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data"))
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/screwing/turbo_ikflow"))
 alpha_path     = os.path.join(base_dir, "complete_alpha_trend_wide.csv")
 beta_path      = os.path.join(base_dir, "complete_beta_trend_wide.csv")
 gamma_path     = os.path.join(base_dir, "complete_gamma_trend_wide.csv")
@@ -214,6 +214,7 @@ leader_max_wide.columns = [c.replace("λ+", "λmax") for c in leader_max_wide.co
 # Plot 1: per-generation best, λ+ and λ− (markers)
 plot_lambda_pairs(best_plus_wide, best_minus_wide,
                   r"Quadratic roots $\lambda^{(\pm)}$ (Eq. 5) — per-generation best individual")
+
 
 # Plot 2: best-so-far, λ_max only (continuous lines), colors: red/green/yellow/blue
 plot_lambda_max_lines(leader_max_wide,

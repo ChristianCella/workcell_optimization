@@ -390,8 +390,8 @@ if __name__ == "__main__":
     run_sim, model, data, base_body_id, screwdriver_body_id, piece_body_id, tool_site_id = make_simulator(local_wrenches)
 
     # Parameters of the genetic algorithm
-    lb = np.array([0.0, -0.4, -np.pi/3, 0.0, 0.0, -np.pi/4, 0.15, 0.15, -np.pi, -np.pi, -np.pi, -2*np.pi, -2*np.pi, -2*np.pi])
-    ub = np.array([0.5,  0.4,  np.pi/3, 0.1, 0.1,  np.pi/4, 0.4, 0.4,  np.pi,  np.pi,  np.pi,  2*np.pi,  2*np.pi,  2*np.pi])
+    lb = np.array([0.0, -0.5, -np.pi/4, 0.0, 0.0, -np.pi/4, -0.1, -0.5, 135*np.pi/180, -115*np.pi/180, 60*np.pi/180, -105*np.pi/180, -105*np.pi/180, 30*np.pi/180])
+    ub = np.array([0.5,  0.5,  np.pi/4, 0.1, 0.1,  np.pi/4, 0.2, 0.5,  225*np.pi/180,  -85*np.pi/180,  100*np.pi/180,  -75*np.pi/180,  -75*np.pi/180, 60*np.pi/180])
 
     center = (ub + lb) / 2.0
     scale  = (ub - lb) / 2.0
@@ -720,6 +720,10 @@ if __name__ == "__main__":
         df_configs = pd.DataFrame(best_configs_trend, columns=[f"config_{i}" for i in range(len(best_configs_trend[0]))])
         df_configs.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", "best_configs.csv"), index=False)
 
+        # Save the total time
+        df_time = pd.DataFrame([[complete_time]], columns=["total_time"])
+        df_time.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", "total_time.csv"), index=False)
+
         print("\nOptimization terminated:")
         if parameters.verbose:
             print(f"f_min cma-es: {res.fbest:.6f}; f_min hand computed: {best_fitness_trend[-1]:.6f}")
@@ -742,10 +746,17 @@ if __name__ == "__main__":
             # Set tool
             set_body_pose(model, data, screwdriver_body_id, [best_solutions[-1][3], best_solutions[-1][4], 0.03], euler_to_quaternion(best_solutions[-1][5], 0, 0))
 
+            # NOTE: put tool frame in the correct position (otherwise the fitness you compute is wrong!!)
+            _, _, A_ee_t1 = get_homogeneous_matrix(best_solutions[-1][3], float(best_solutions[-1][4]), 0.03, np.degrees(float(best_solutions[-1][5])), 0, 0)
+            _, _, A_t1_t  = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
+            A_ee_t = A_ee_t1 @ A_t1_t
+            tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
+            set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
+
             # Set robot joints
             q0_final = np.array([best_solutions[-1][8], best_solutions[-1][9], best_solutions[-1][10],
                        best_solutions[-1][11], best_solutions[-1][12], best_solutions[-1][13]])
-            data.qpos[:6] = q0_final.tolist()
+            data.qpos[:robot_parameters.nu] = q0_final.tolist()
             mujoco.mj_forward(model, data)
 
             norms = []
