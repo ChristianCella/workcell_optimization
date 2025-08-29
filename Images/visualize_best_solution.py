@@ -49,8 +49,8 @@ mujoco.mj_resetData(model, data)
 # Load CSVs (last/best row)
 # -----------------------------
 csv_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-xi_path = os.path.join(csv_dir, "results/data/screwing/turbo_ikflow/best_solutions.csv")
-q_path  = os.path.join(csv_dir, "results/data/screwing/turbo_ikflow/best_configs.csv")
+xi_path = os.path.join(csv_dir, "results/data/screwing/cma_es_ikflow/best_solutions.csv")
+q_path  = os.path.join(csv_dir, "results/data/screwing/cma_es_ikflow/best_configs.csv")
 
 df_xi = pd.read_csv(xi_path)
 df_q  = pd.read_csv(q_path)
@@ -76,10 +76,10 @@ print(f"{fonts.red}The complete vector q is:\n{q_mat}{fonts.reset}")
 # Wrenches (tool frame)
 # -----------------------------
 local_wrenches = [
-    1.5 * np.array([0, 0, -30, 0, 0, -20]),
-    6 * np.array([0, 0, -30, 0, 0, -20]),
-    1.5 * np.array([0, 0, -30, 0, 0, -20]),
-    1.5 * np.array([0, 0, -30, 0, 0, -20]),
+    np.array([0, 0, -30, 0, 0, -20]),
+    np.array([0, 0, -30, 0, 0, -20]),
+    np.array([0, 0, -30, 0, 0, -20]),
+    np.array([0, 0, -30, 0, 0, -20]),
 ]
 
 # -----------------------------

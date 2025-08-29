@@ -4,8 +4,8 @@ import sys, os
 
 # Load the CSV files
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-path_ext = os.path.join(base_dir, "data/screwing/cma_es_ikflow/best_external_torques.csv")
-path_grav = os.path.join(base_dir, "data/screwing/cma_es_ikflow/best_gravity_torques.csv")
+path_ext = os.path.join(base_dir, "data/screwing/turbo_ikflow/best_external_torques.csv")
+path_grav = os.path.join(base_dir, "data/screwing/turbo_ikflow/best_gravity_torques.csv")
 
 df_ext = pd.read_csv(path_ext)
 df_grav = pd.read_csv(path_grav)
