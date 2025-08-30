@@ -169,7 +169,7 @@ custom_param2 = 2
 
 # Number of initial points for the training
 
-N = 1 # we start with only one point selected randomly
+N = 10 # we start with only one point selected randomly
 
 X_dataset = np.random.uniform(-10, 10, (N, 2))
 Y_dataset = hidden_f(X_dataset).reshape(-1, 1)
@@ -180,6 +180,13 @@ GP = GaussianProcessRegressor(kernel = 1.5 * ker.RBF(length_scale = 1, length_sc
                             n_restarts_optimizer = 1)
 #GP = GaussianProcessRegressor(kernel = ker.RationalQuadratic(), n_restarts_optimizer = 10)
 GP.fit(X_dataset, Y_dataset)
+
+#
+# Tracciamento dei valori durante le iterazioni
+history_x1 = []
+history_x2 = []
+history_y = []
+history_ei = []
 
 # Start the loop procedure to get the final candidate
 
@@ -201,6 +208,12 @@ for i in range(num_iters) :
     # Evaluate the new candidate (Perform a new simulation)
     
     eval_x_next = hidden_f(x_next).reshape(-1, 1)
+
+    # Salva i valori correnti
+    history_x1.append(x_next[0, 0])
+    history_x2.append(x_next[0, 1])
+    history_y.append(eval_x_next[0, 0])
+    history_ei.append(expected_improvement(x_next, GP, best_evaluation)[0])
     
     # Print some useful numbers
 
@@ -264,5 +277,33 @@ ax.scatter(X_dataset[: - 1, 0], X_dataset[: - 1, 1], X_dataset[: - 1, 0] + X_dat
 plt.xlabel('x1 set')
 plt.ylabel('X2 set')
 plt.title('Graphical meaning of the constraint', fontsize = 20)
+plt.show()
+
+
+# Plot dell'andamento nel tempo
+iterations = np.arange(1, num_iters + 1)
+
+plt.figure(figsize=(12, 4))
+plt.subplot(1, 3, 1)
+plt.plot(iterations, history_x1, label='x1')
+plt.plot(iterations, history_x2, label='x2')
+plt.xlabel('Iterazione')
+plt.ylabel('Valore')
+plt.title('Andamento di x1 e x2')
+plt.legend()
+
+plt.subplot(1, 3, 2)
+plt.plot(iterations, history_y, color='green')
+plt.xlabel('Iterazione')
+plt.ylabel('f(x)')
+plt.title('Andamento di y')
+
+plt.subplot(1, 3, 3)
+plt.plot(iterations, history_ei, color='orange')
+plt.xlabel('Iterazione')
+plt.ylabel('Expected Improvement')
+plt.title('Andamento di EI')
+
+plt.tight_layout()
 plt.show()
 

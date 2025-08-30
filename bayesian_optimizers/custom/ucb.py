@@ -165,7 +165,15 @@ GP = GaussianProcessRegressor(kernel = 1.5 * ker.RBF(length_scale = 1, length_sc
                             n_restarts_optimizer = 1)
 GP.fit(X_dataset, Y_dataset)
 
+#
 # Start the loop procedure to get the final candidate
+#
+
+# Liste per tracciare l'andamento dei valori durante le iterazioni
+history_x1 = []
+history_x2 = []
+history_y = []
+history_ucb = []
 
 for i in range(num_iters) :
 
@@ -177,26 +185,27 @@ for i in range(num_iters) :
     
     
     # Get the new "tentative" point
-    
     x_next = optimize_acquisition(GP, n, anchor_number, kappa, x_inf, x_sup, constraint)
-    
-    # Evaluate the new candidate (Perform a new simulation)
-    
-    eval_x_next = hidden_f(x_next).reshape(-1, 1)
-    
-    # Print some useful numbers
 
+    # Evaluate the new candidate (Perform a new simulation)
+    eval_x_next = hidden_f(x_next).reshape(-1, 1)
+
+    # Tracciamento dei valori per ogni iterazione
+    history_x1.append(x_next[0, 0])
+    history_x2.append(x_next[0, 1])
+    history_y.append(eval_x_next[0, 0])
+    history_ucb.append(acquisition_UCB(x_next, GP, kappa)[0])
+
+    # Print some useful numbers
     print('Iteration number : ' + str(i) + ')\n\n')
     print('X_next : ' + str(x_next.flatten()))
     print('Acquisition function value of X_next : ' + str(acquisition_UCB(x_next, GP, kappa)))
 
     # Augment the dataset
-
     X_dataset = np.append(X_dataset, x_next, axis = 0)
     Y_dataset = np.append(Y_dataset, eval_x_next, axis = 0)
 
     # redefinition and re-train of the GPR using the updated (augmented) dataset (valid from the next iteration)
-
     GP = GaussianProcessRegressor(kernel = 1.5 * ker.RBF(length_scale = 1.0, length_scale_bounds = (1e-05, 1000)),
                                 n_restarts_optimizer = 1)
     GP.fit(X_dataset, Y_dataset)
@@ -223,6 +232,7 @@ ax.scatter(X_dataset[- 1, 0], X_dataset[- 1, 1], Y_dataset[- 1], c = 'red', s = 
 plt.xlabel('x1 set')
 plt.ylabel('X2 set')
 plt.title('Hidden function', fontsize = 20)
+# Mostra il plot della funzione nascosta
 plt.show()
     
 # Define the domain to plot the yhperplanes of the constraints
@@ -247,3 +257,29 @@ plt.ylabel('X2 set')
 plt.title('Graphical meaning of the constraint', fontsize = 20)
 plt.show()
 
+# Plot dell'andamento nel tempo
+iterations = np.arange(1, num_iters + 1)
+
+plt.figure(figsize=(12, 4))
+plt.subplot(1, 3, 1)
+plt.plot(iterations, history_x1, label='x1')
+plt.plot(iterations, history_x2, label='x2')
+plt.xlabel('Iterazione')
+plt.ylabel('Valore')
+plt.title('Andamento di x1 e x2')
+plt.legend()
+
+plt.subplot(1, 3, 2)
+plt.plot(iterations, history_y, color='green')
+plt.xlabel('Iterazione')
+plt.ylabel('f(x)')
+plt.title('Andamento di y')
+
+plt.subplot(1, 3, 3)
+plt.plot(iterations, history_ucb, color='orange')
+plt.xlabel('Iterazione')
+plt.ylabel('Upper Confidence Bound')
+plt.title('Andamento di UCB')
+
+plt.tight_layout()
+plt.show()

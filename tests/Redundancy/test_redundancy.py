@@ -104,7 +104,8 @@ def get_full_jacobian(model, data, tool_site_id):
 
 def ik5dof_tool_site(model, data, tool_site_id, target_pos, z_dir_des, max_iters=500, tol=1e-6):
     q = data.qpos[:6].copy()
-    for _ in range(max_iters):
+    norm_err=1
+    while(norm_err>1e-6):
         mujoco.mj_forward(model, data)
         pos = data.site_xpos[tool_site_id]
         z_dir = get_tool_z_direction(data, tool_site_id)
@@ -115,6 +116,8 @@ def ik5dof_tool_site(model, data, tool_site_id, target_pos, z_dir_des, max_iters
         dq = np.linalg.pinv(J5, rcond=1e-4) @ err
         q += dq
         data.qpos[:6] = q
+        norm_err=np.linalg.norm(data.site_xpos[tool_site_id] - pos)
+        print(float(norm_err))
     return q
 
 def maximize_manipulability(model, data, tool_site_id, target_pos, z_dir_des, q_init, nsteps=500, alpha=0.02):
