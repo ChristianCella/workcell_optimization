@@ -11,13 +11,13 @@ mpl.rcParams['text.latex.preamble'] = r'\usepackage{amsmath}'
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 
-turbo_ikflow_path = os.path.join(base_dir, "data/screwing/turbo_ikflow/Secondary_leader.csv")
+turbo_ikflow_path = os.path.join(base_dir, "data/screwing/turbo_ikflow/fitness_fL.csv")
 df_turbo_ikflow = pd.read_csv(turbo_ikflow_path)
 
-cmaes_ikflow_path = os.path.join(base_dir, "data/screwing/cma_es_ikflow/Secondary_leader.csv")
+cmaes_ikflow_path = os.path.join(base_dir, "data/screwing/cma_es_ikflow/fitness_fL.csv")
 df_cmaes_ikflow = pd.read_csv(cmaes_ikflow_path)
 
-random_path = os.path.join(base_dir, "data/screwing/random/Secondary_leader.csv")
+random_path = os.path.join(base_dir, "data/screwing/random/fitness_fL.csv")
 df_random = pd.read_csv(random_path)
 
 # Plot the fitness values
