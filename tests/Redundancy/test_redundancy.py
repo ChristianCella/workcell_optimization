@@ -25,7 +25,7 @@ def set_body_pose(model, data, body_id, pos, quat):
     model.body_quat[body_id] = quat
     mujoco.mj_forward(model, data)
 
-def ik_tool_site(model, data, tool_site_id, target_pos, target_quat, max_iters=200, tol=1e-4):
+def ik_tool_site(model, data, tool_site_id, target_pos, target_quat, max_iters=1000, tol=1e-4):
     q = data.qpos[:6].copy()
     for _ in range(max_iters):
         mujoco.mj_forward(model, data)

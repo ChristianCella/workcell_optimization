@@ -1,19 +1,3 @@
-'''
-This code implements the bayesian optimization for the XY position of the base of the robot.
-In this code we aim to optimize the layout of a UR5e robot with a screwdriver tool,:
-
--xb,yb,zb = base position of the robot (param0, param1, param2)
--theta_xb,theta_yb,theta_zb = rotation angle of the robot base (param3,param4,param5)
--q01,q02,q03,q04,q05,q06 = intial joint angles of the robot (reachability analysis) (param6,param7,param8,param9,param10,param11)
--xe,ye,ze = position of the end-effector  (param18,param19,param20)
--theta_xe,theta_ye,theta_ze = rotation angles of the end-effector (tool tip) (param21,param22,param23)
--xp,yp,zp = position of the piece to be screwed (param12,param13,param14)
--theta_xp,theta_yp,theta_zp = rotation angles of the piece to be screwed (param15,param16,param17)
-
-24 parameters to be optimized (param0 to param23).
-
-
-'''
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
@@ -41,42 +25,37 @@ import cma
 import mujoco
 import mujoco.viewer
 
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
-from parameters import ScrewingTurbo
-parameters = ScrewingTurbo()
+from parameters import ScrewingTurboBioik2
+parameters = ScrewingTurboBioik2()
 from create_scene import create_scene
-
 
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
 import fonts
-from transformations import rotm_to_quaternion, get_world_wrench, get_homogeneous_matrix,euler_to_quaternion
+from transformations import rotm_to_quaternion, get_world_wrench, get_homogeneous_matrix, euler_to_quaternion
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian
-from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
 # Import TuRBO
 turbo_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../TuRBO'))
 sys.path.append(turbo_dir)
 from turbo.turbo_m import TurboM
 
+# Import the IK solver
+ik_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../tests/Redundancy'))
+sys.path.append(ik_dir)
+from test_redundancy import get_full_jacobian, ik_tool_site, get_tool_z_direction, manipulability, maximize_manipulability
+
+# Import bioik2
+bioik2_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../tests/Redundancy'))
+sys.path.append(bioik2_dir)
+from bio_ik2_custom import BioIK2Solver, PoseGoal, ManipulabilityGoal, AntiAlignGoal, JointLimitGoal, CollisionGoal
+
 # Import the path planner
 planning_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../tests/Motion_planning'))
 sys.path.append(planning_dir)
 from rrt_connect import RRTConnectPlanner, MuJoCoCollisionChecker, clamp_to_limits, prune_near_duplicates, resample_path_by_count, workspace_length_simple
 
-# Load a global model
-global_fast_ik_solver = FastIKFlowSolver()
-
-'''
----------------------------------------SIMULATION---------------------------------------
-This part of the code setup the simulation environment for the UR5e robot with a screwdriver tool.
-It returns:
-- Avarage of the total torques
-- The best configurations for each piece to be screwed
-- The best gravity torques
-- The best external torques
-'''
 def make_simulator(local_wrenches):
 
     # Path setup 
@@ -227,37 +206,43 @@ def make_simulator(local_wrenches):
             for j in range(len(ref_body_ids)): # ! For each piece to be screwed
                 if parameters.verbose: print(f"Solving IK for target frame {j}")
 
+                # NOTE => Cannot skip this!!
+                tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
+
                 #Get the pose of the target 
                 posit = data.xpos[ref_body_ids[j]]
                 rotm = data.xmat[ref_body_ids[j]].reshape(3, 3)
-                theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=True)
+                quat = R.from_matrix(rotm).as_quat()
+                z_dir = rotm[:, 2] 
 
-                #! Solve IK for the speficic piece with ikflow
-                #fast_ik_solver = FastIKFlowSolver() 
-                sols_ok, fk_ok = [], []
-                for i in range(parameters.N_disc): # 0, 1, 2, ... N_disc-1
-                    
-                    _, _, A_w_p_rotated = get_homogeneous_matrix(posit[0], posit[1], posit[2], theta_x_0, theta_y_0, theta_z_0 + i * 360 / parameters.N_disc)
-                    A_b_wl3 = np.linalg.inv(A_w_b) @ A_w_p_rotated @ np.linalg.inv(A_ee_t) @ np.linalg.inv(A_wl3_ee)
+                # Find an initial guess
+                q_start = ik_tool_site(model, data, tool_site_id, posit, quat)
+                data.qpos[:6] = q_start       
+                mujoco.mj_forward(model, data)
+                viewer.sync()
 
-                    # Create the target pose for the IK solver (from robot base to wrist_link_3)
-                    quat_pose = rotm_to_quaternion(A_b_wl3[:3, :3])
-                    target = np.array([
-                        A_b_wl3[0, 3], A_b_wl3[1, 3], A_b_wl3[2, 3],   # position
-                        quat_pose[0], quat_pose[1], quat_pose[2], quat_pose[3]  # quaternion
-                    ], dtype=np.float64)
-                    tgt_tensor = torch.from_numpy(target.astype(np.float32))
+                #! Create the solver
+                jlimits = model.jnt_range[:6]
+                solver = BioIK2Solver(model, data, tool_site_id, jlimits, model_path,
+                                    population_size=150, n_elites=25, time_limit=6.0,
+                                    use_multiprocessing=True, n_workers=5)
 
-                    # Solve the IK problem for the discretized pose
-                    sols_disc, fk_disc = solve_ik_fast(tgt_tensor, N = parameters.N_samples, fast_solver=global_fast_ik_solver) # Find N solutions for this target
-                    sols_ok.append(sols_disc)
-                    fk_ok.append(fk_disc)
+
+                #! Solve IK for the speficic piece with bioik2
+                solver.add_goal(PoseGoal(posit, z_dir, weight=1e11))
+                solver.add_goal(ManipulabilityGoal(weight=1e2))
+                solver.add_goal(AntiAlignGoal(z_dir, weight=1e6))
+                solver.add_goal(CollisionGoal(wt=1e4, weight=1.0))
+                q_opt = solver.solve(tol=1e-5)
+                data.qpos[:6] = q_opt.tolist()
+                mujoco.mj_forward(model, data)
+                viewer.sync()
+                #time.sleep(parameters.show_pose_duration)
+
+                # Compute the cartesian error
+                cartesian_error = np.linalg.norm(posit - data.site_xpos[tool_site_id])
 
                 # ! Inference for the specific piece is over: determine the best configuration
-                sols_ok = torch.cat(sols_ok, dim=0)
-                fk_ok = torch.cat(fk_ok, dim=0)
-                sols_np = sols_ok.cpu().numpy()
-                fk_np = fk_ok.cpu().numpy()
                 cost = 1e6
                 best_cost = 1e6
                 best_man = 1e6
@@ -265,53 +250,45 @@ def make_simulator(local_wrenches):
 
                 # Maybe, no IK solution is available (i.e., the piece is unreachable since outside the workspace)
                 best_q = np.zeros(6) # This variable will be overwritten
-                if len(sols_np) > 0: #! There are IK solutions available
+                if cartesian_error < 1e-2: #! There are IK solutions available
 
                     counter_pieces_ik_aval += 1 # Increase the counter
+                    
+                    # Get collisions (should be 0)
+                    n_cols = get_collisions(model, data, parameters.verbose)
 
-                    for i, (q, x) in enumerate(zip(sols_np, fk_np), 1):
-                        if parameters.verbose: print(f"[OK] sol {i:2d}: q={np.round(q,3)}  →  x={np.round(x,3)}")
+                    # Compute the primary objective
+                    f_delta_j = inverse_manipulability(q_opt.copy(), model, data, tool_site_id)
 
-                        # apply joint solution, but do not display it
-                        data.qpos[:6] = q.tolist()
-                        mujoco.mj_forward(model, data)
-                        #viewer.sync()
-                        #time.sleep(parameters.show_pose_duration)
+                    # ! Compute the secondary objective
+                    diff = q_opt.copy() - m
+                    f_q = float(np.sum(w_diff * (diff / s)**2))    # w shape (n,)
 
-                        # ! Collisions, 'inverse' manipulability and secondary objective
-                        n_cols = get_collisions(model, data, parameters.verbose)
+                    # Total cost for the j-th follower
+                    cost = 10 * f_delta_j + 0.5 * f_q
 
-                        # Compute the primary objective
-                        f_delta_j = inverse_manipulability(q.copy(), model, data, tool_site_id)
+                    # Check if better than the current
+                    if (cost < best_cost) and (n_cols == 0):
+                        best_cost = cost
+                        best_man = f_delta_j
+                        best_q_diff = f_q
+                        best_q = q_opt.copy()
 
-                        # ! Compute the secondary objective
-                        diff = q.copy() - m
-                        f_q = float(np.sum(w_diff * (diff / s)**2))    # w shape (n,)
-
-                        # Total cost for the j-th follower
-                        cost = 10 * f_delta_j + 0.5 * f_q
-
-                        # Check if better than the current
-                        if (cost < best_cost) and (n_cols == 0):
-                            best_cost = cost
-                            best_man = f_delta_j
-                            best_q_diff = f_q
-                            best_q = q
 
                     # ! If best cost is not equal to infinite
                     if best_cost < 1e6:
                         counter_pieces_without_cols += 1 # Increase the counter
         
-                else: #! No IK solution found, set the best configuration to the default one (all joints at 0)  
+                else: #! bioik2 could not find a solution 
                     best_q = np.zeros(6)
-                
-                # Udate the viewer with the best configuration found
+
+                # Update the viewer with the best configuration found
                 data.qpos[:6] = best_q.tolist()
                 data.qvel[:] = 0  # clear velocities
                 data.qacc[:] = 0  # clear accelerations
                 data.ctrl[:] = 0  # (if using actuators, may help avoid torque pollution)
                 mujoco.mj_forward(model, data)
-                if parameters.activate_gui: viewer.sync()
+                viewer.sync()
                 if parameters.activate_gui: time.sleep(1.0) # If this is not present, you will never have time to see also the 'optimal' config. for the final piece
 
                 # ! Compute the torques for the best configuration
@@ -423,13 +400,6 @@ matplotlib.rcParams['font.family'] = 'STIXGeneral'
 matplotlib.rc('xtick', labelsize = 15)
 matplotlib.rc('ytick', labelsize = 15)
 
-
-
-'''
----------------------------------------MAIN FUNCTION---------------------------------------
-'''
-
-
 if __name__ == "__main__":
  
     '''
@@ -449,12 +419,6 @@ if __name__ == "__main__":
 
     run_sim, model, data, base_body_id, screwdriver_body_id, piece_body_id, tool_site_id = make_simulator(local_wrenches)
 
-    '''
-    ----------------------------DEFINIZIONE VETTORE UB_LB--------------------------------
-    
-    xb,yb,rx,xee,yee,rxe,xp,yp,q01,q02,q03,q04,q05,q06
-    '''
-
     lb_real = np.array([0.0, -0.5, -np.pi/4, 0.0, 0.0, -np.pi/4, -0.1, -0.5, 135*np.pi/180, -115*np.pi/180, 60*np.pi/180, -105*np.pi/180, -105*np.pi/180, 30*np.pi/180])
     ub_real = np.array([0.5,  0.5,  np.pi/4, 0.1, 0.1,  np.pi/4, 0.2, 0.5,  225*np.pi/180,  -85*np.pi/180,  100*np.pi/180,  -75*np.pi/180,  -75*np.pi/180, 60*np.pi/180])
     #---------------------------------operazione scalatura-----------
@@ -465,16 +429,12 @@ if __name__ == "__main__":
     def decode(z):  return center + scale * z
     ub=np.array([1,1,1,1,1,1,1,1,1,1,1,1,1,1])
     lb=np.array([-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1])
-    '''
-     ----------------------------Parameters for TuRBO-m--------------------------------
-    '''
-    
+ 
     batch_size = 40
-    n_desired_iterations = 100
-    n_trust_regions = 20 
+    n_trust_regions = 5
     n_training_steps = 50 
-    n_init = 100
-    max_evals = n_trust_regions * n_init + n_desired_iterations * batch_size    
+    n_init = 28
+    max_evals = 4000    
     use_ard = False #! Automatic relevance determination 
     verbose_turbo = True
     

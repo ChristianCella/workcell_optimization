@@ -1,19 +1,3 @@
-'''
-This code implements the bayesian optimization for the XY position of the base of the robot.
-In this code we aim to optimize the layout of a UR5e robot with a screwdriver tool,:
-
--xb,yb,zb = base position of the robot (param0, param1, param2)
--theta_xb,theta_yb,theta_zb = rotation angle of the robot base (param3,param4,param5)
--q01,q02,q03,q04,q05,q06 = intial joint angles of the robot (reachability analysis) (param6,param7,param8,param9,param10,param11)
--xe,ye,ze = position of the end-effector  (param18,param19,param20)
--theta_xe,theta_ye,theta_ze = rotation angles of the end-effector (tool tip) (param21,param22,param23)
--xp,yp,zp = position of the piece to be screwed (param12,param13,param14)
--theta_xp,theta_yp,theta_zp = rotation angles of the piece to be screwed (param15,param16,param17)
-
-24 parameters to be optimized (param0 to param23).
-
-
-'''
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
@@ -41,12 +25,10 @@ import cma
 import mujoco
 import mujoco.viewer
 
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
-from parameters import ScrewingTurbo
-parameters = ScrewingTurbo()
+from parameters import ScrewingTurboDLS
+parameters = ScrewingTurboDLS()
 from create_scene import create_scene
-
 
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
@@ -60,23 +42,17 @@ turbo_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../TuRBO
 sys.path.append(turbo_dir)
 from turbo.turbo_m import TurboM
 
-# Import the path planner
+# Import the IK solver
+ik_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../tests/Redundancy'))
+sys.path.append(ik_dir)
+from test_redundancy import get_full_jacobian, ik_tool_site, get_tool_z_direction, manipulability, maximize_manipulability
+
+#import del motion planning
 planning_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../tests/Motion_planning'))
 sys.path.append(planning_dir)
 from rrt_connect import RRTConnectPlanner, MuJoCoCollisionChecker, clamp_to_limits, prune_near_duplicates, resample_path_by_count, workspace_length_simple
 
-# Load a global model
-global_fast_ik_solver = FastIKFlowSolver()
 
-'''
----------------------------------------SIMULATION---------------------------------------
-This part of the code setup the simulation environment for the UR5e robot with a screwdriver tool.
-It returns:
-- Avarage of the total torques
-- The best configurations for each piece to be screwed
-- The best gravity torques
-- The best external torques
-'''
 def make_simulator(local_wrenches):
 
     # Path setup 
@@ -210,13 +186,14 @@ def make_simulator(local_wrenches):
 
             # The fitness will be infinite in this case
             fit_tau = float(np.mean(norms))
-            fit_path = 1e2 / (2 * np.pi * 0.85) #era 1e12 stesso discorso di prima
+            fit_path = 20 / (2 * np.pi * 0.85) #era 1e12 stesso discorso di prima
             individual_status.append(1) # 1 = layout problem 
             individual_status.append(1000) # Placeholder for impossibility to compute IK
             individual_status.append(1000) # Placeholder for impossibility to verify if IK has collisions
             return fit_tau, fit_path, best_configs, best_followers, best_primary_followers, best_secondary_followers, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma
 
         else:
+            best_q = np.zeros(6)
             if parameters.verbose: print(f"Initial layout has no collisions. Proceeding with the optimization.")
             individual_status.append(0) # 0 = fine, no layout problem
 
@@ -230,80 +207,56 @@ def make_simulator(local_wrenches):
                 #Get the pose of the target 
                 posit = data.xpos[ref_body_ids[j]]
                 rotm = data.xmat[ref_body_ids[j]].reshape(3, 3)
-                theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=True)
+                quat = R.from_matrix(rotm).as_quat()
+                #theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=True)
 
-                #! Solve IK for the speficic piece with ikflow
-                #fast_ik_solver = FastIKFlowSolver() 
-                sols_ok, fk_ok = [], []
-                for i in range(parameters.N_disc): # 0, 1, 2, ... N_disc-1
-                    
-                    _, _, A_w_p_rotated = get_homogeneous_matrix(posit[0], posit[1], posit[2], theta_x_0, theta_y_0, theta_z_0 + i * 360 / parameters.N_disc)
-                    A_b_wl3 = np.linalg.inv(A_w_b) @ A_w_p_rotated @ np.linalg.inv(A_ee_t) @ np.linalg.inv(A_wl3_ee)
+                # ! Use Damped least-squares to solve the IK
+                #quat_wxyz = euler_to_quaternion(theta_x_0, theta_y_0, theta_z_0)   # [w,x,y,z]
+                #quat_xyzw = [quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]]   
+                q_init = ik_tool_site(model, data, tool_site_id, posit, quat)
+                if IK_verbose: print(f"Initial 6-DoF IK solution: {np.round(q_init, 3)}")
+                data.qpos[:6] = q_init
+                mujoco.mj_forward(model, data) 
+                
+                if IK_verbose:
+                    print(f"\n[Init 6-DoF IK] Tool site: {np.round(data.site_xpos[tool_site_id],3)}")
+                    print(f"z_dir: {np.round(get_tool_z_direction(data, tool_site_id),3)}")
+                    print(f"Error norm: {np.linalg.norm(data.site_xpos[tool_site_id] - posit):.5f}")
+                    print(f"Manipulability: {manipulability(get_full_jacobian(model, data, tool_site_id)):.5f}")
+                
+                # ! 2) Resolution of redundancy
+                target_pos = data.site_xpos[tool_site_id].copy()
+                z_dir_ik = get_tool_z_direction(data, tool_site_id).copy()
 
-                    # Create the target pose for the IK solver (from robot base to wrist_link_3)
-                    quat_pose = rotm_to_quaternion(A_b_wl3[:3, :3])
-                    target = np.array([
-                        A_b_wl3[0, 3], A_b_wl3[1, 3], A_b_wl3[2, 3],   # position
-                        quat_pose[0], quat_pose[1], quat_pose[2], quat_pose[3]  # quaternion
-                    ], dtype=np.float64)
-                    tgt_tensor = torch.from_numpy(target.astype(np.float32))
+                            # --- Nullspace maximization (5-DoF: position + z-direction) ---
+                q = maximize_manipulability(model, data, tool_site_id, target_pos, z_dir_ik, q_init)
+                if IK_verbose: print(f"Optimal configuration: {np.round(q, 3)}")
+                data.qpos[:6] = q
+                mujoco.mj_forward(model, data)
+                if IK_verbose:
+                    print(f"After nullspace search, tool site: {np.round(data.site_xpos[tool_site_id],3)}, z_dir: {np.round(get_tool_z_direction(data, tool_site_id),3)}")
+                    print(f"Manipulability: {manipulability(get_full_jacobian(model, data, tool_site_id)):.5f}")
 
-                    # Solve the IK problem for the discretized pose
-                    sols_disc, fk_disc = solve_ik_fast(tgt_tensor, N = parameters.N_samples, fast_solver=global_fast_ik_solver) # Find N solutions for this target
-                    sols_ok.append(sols_disc)
-                    fk_ok.append(fk_disc)
+                # CALCOLO VARI PARAMETRI
+                counter_pieces_ik_aval += 1 # IK FLOW TROVA SEMPRE UNA CONFIGURAZIONE  (ANCHE SBAGLIATA MA LA TROVA)
+                n_cols = get_collisions(model, data, parameters.verbose)
+                f_delta_j = inverse_manipulability(q.copy(), model, data, tool_site_id)
 
-                # ! Inference for the specific piece is over: determine the best configuration
-                sols_ok = torch.cat(sols_ok, dim=0)
-                fk_ok = torch.cat(fk_ok, dim=0)
-                sols_np = sols_ok.cpu().numpy()
-                fk_np = fk_ok.cpu().numpy()
-                cost = 1e6
-                best_cost = 1e6
-                best_man = 1e6
-                best_q_diff = 1e6
+                # ! Compute the secondary objective
+                diff = q.copy() - m
+                f_q = float(np.sum(w_diff * (diff / s)**2))    # w shape (n,)
 
-                # Maybe, no IK solution is available (i.e., the piece is unreachable since outside the workspace)
-                best_q = np.zeros(6) # This variable will be overwritten
-                if len(sols_np) > 0: #! There are IK solutions available
-
-                    counter_pieces_ik_aval += 1 # Increase the counter
-
-                    for i, (q, x) in enumerate(zip(sols_np, fk_np), 1):
-                        if parameters.verbose: print(f"[OK] sol {i:2d}: q={np.round(q,3)}  →  x={np.round(x,3)}")
-
-                        # apply joint solution, but do not display it
-                        data.qpos[:6] = q.tolist()
-                        mujoco.mj_forward(model, data)
-                        #viewer.sync()
-                        #time.sleep(parameters.show_pose_duration)
-
-                        # ! Collisions, 'inverse' manipulability and secondary objective
-                        n_cols = get_collisions(model, data, parameters.verbose)
-
-                        # Compute the primary objective
-                        f_delta_j = inverse_manipulability(q.copy(), model, data, tool_site_id)
-
-                        # ! Compute the secondary objective
-                        diff = q.copy() - m
-                        f_q = float(np.sum(w_diff * (diff / s)**2))    # w shape (n,)
-
-                        # Total cost for the j-th follower
-                        cost = 10 * f_delta_j + 0.5 * f_q
-
-                        # Check if better than the current
-                        if (cost < best_cost) and (n_cols == 0):
-                            best_cost = cost
-                            best_man = f_delta_j
-                            best_q_diff = f_q
-                            best_q = q
-
-                    # ! If best cost is not equal to infinite
-                    if best_cost < 1e6:
-                        counter_pieces_without_cols += 1 # Increase the counter
-        
-                else: #! No IK solution found, set the best configuration to the default one (all joints at 0)  
-                    best_q = np.zeros(6)
+                # Total cost for the j-th follower
+                if n_cols==0:
+                    best_cost = 10 * f_delta_j + 0.5 * f_q
+                    best_man = f_delta_j
+                    best_q_diff = f_q
+                    best_q = q
+                    counter_pieces_without_cols += 1
+                else:
+                    best_cost = 1e6
+                    best_man = 1e6
+                    best_q_diff = 1e6
                 
                 # Udate the viewer with the best configuration found
                 data.qpos[:6] = best_q.tolist()
@@ -402,7 +355,7 @@ def make_simulator(local_wrenches):
 
             # Impose to infinite the secondary objective
             else:
-                total_length = 1e2
+                total_length = 50#1e2
 
             # ! The complete fitness is the sum of f_tau and f_path
             f_path = total_length / (2 * np.pi * 0.85)
@@ -424,36 +377,20 @@ matplotlib.rc('xtick', labelsize = 15)
 matplotlib.rc('ytick', labelsize = 15)
 
 
-
-'''
----------------------------------------MAIN FUNCTION---------------------------------------
-'''
-
-
 if __name__ == "__main__":
- 
-    '''
-    ----------------------INIZIALIZATION-------------------------------------------------
-    '''
+
     # Directory to save data
     save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-  
+
+    #! This will become a query to a database
     local_wrenches = [
         (np.array([0, 0, -30, 0, 0, -20])),
         (np.array([0, 0, -30, 0, 0, -20])),
         (np.array([0, 0, -30, 0, 0, -20])),
         (np.array([0, 0, -30, 0, 0, -20])),
     ]
-    
-  
 
     run_sim, model, data, base_body_id, screwdriver_body_id, piece_body_id, tool_site_id = make_simulator(local_wrenches)
-
-    '''
-    ----------------------------DEFINIZIONE VETTORE UB_LB--------------------------------
-    
-    xb,yb,rx,xee,yee,rxe,xp,yp,q01,q02,q03,q04,q05,q06
-    '''
 
     lb_real = np.array([0.0, -0.5, -np.pi/4, 0.0, 0.0, -np.pi/4, -0.1, -0.5, 135*np.pi/180, -115*np.pi/180, 60*np.pi/180, -105*np.pi/180, -105*np.pi/180, 30*np.pi/180])
     ub_real = np.array([0.5,  0.5,  np.pi/4, 0.1, 0.1,  np.pi/4, 0.2, 0.5,  225*np.pi/180,  -85*np.pi/180,  100*np.pi/180,  -75*np.pi/180,  -75*np.pi/180, 60*np.pi/180])
@@ -465,18 +402,16 @@ if __name__ == "__main__":
     def decode(z):  return center + scale * z
     ub=np.array([1,1,1,1,1,1,1,1,1,1,1,1,1,1])
     lb=np.array([-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1])
-    '''
-     ----------------------------Parameters for TuRBO-m--------------------------------
-    '''
-    
-    batch_size = 40
-    n_desired_iterations = 100
-    n_trust_regions = 20 
-    n_training_steps = 50 
-    n_init = 100
-    max_evals = n_trust_regions * n_init + n_desired_iterations * batch_size    
-    use_ard = False #! Automatic relevance determination 
-    verbose_turbo = True
+
+    batch_size = 3 #10
+    max_evals = 12  # 140 (n_init*trust_regions)+40(batch_size/popsize)*100(n_val)
+    n_init =  2 #80 # max(2 * lb.size, batch_size) sarebbe opportuno 2*d 48
+    use_ard = True
+    n_training_steps = 50  # GP training iters per update
+    verbose = True
+    n_trust_regions = 5 #5  # Number of trust regions to maintain
+    FastIK=False # if this parameter is set to "False" then  the redundancy solver will be the same used in "test_redundancy.py"
+    IK_verbose=False # se è a true stampa tutte le robe di ik_flow
     
     # -----------------------------------------------------------------------------------
     #pesi tella fitness:
@@ -548,7 +483,6 @@ if __name__ == "__main__":
         global batch_sim_status
         global batch_complete_alpha, batch_complete_beta, batch_complete_gamma
         global complete_alpha_trend, complete_beta_trend, complete_gamma_trend
-        global starting_fitness
         # Evaluate the simulator
         x_np_1d=decode(x_np_1d_scaled)
         f_tau, f_path, best_configs, best_followers, best_primary_followers, best_secondary_followers, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma = run_sim(x_np_1d)
@@ -592,48 +526,24 @@ if __name__ == "__main__":
             # pick the best within the current batch
             best_idx = int(np.argmin([pt[1] for pt in current_batch_points]))
             batch_best_x, batch_best_fit = current_batch_points[best_idx]
+            best_fitness_trend.append(batch_best_fit)
+            best_solutions.append(np.array(batch_best_x, dtype=float))
+
             art = batch_artifacts[best_idx]
-
-            # --- BEST-SO-FAR  ---
-            if batch_best_fit < starting_fitness or len(best_fitness_trend) == 0:
-                starting_fitness = batch_best_fit
-                best_fitness_trend.append(starting_fitness)
-                best_solutions.append(np.array(batch_best_x, dtype=float))
-                best_individual_idx.append(best_idx)
-
-                best_fitnesses_tau_trend.append(art["f_tau"])               # scalar
-                best_fitnesses_path_trend.append(art["f_path"])             # scalar
-                best_configs_trend.append(art["best_configs"])              # list per piece
-                best_secondary_fit_trend.append(art["best_followers"])      # followers cost per piece
-                best_manip_trend.append(art["best_primary_followers"])      # manipulability per piece
-                best_range_trend.append(art["best_secondary_followers"])    # range-centering per piece
-                best_gravity_trend.append(art["best_gravity_torques"])      # list of arrays
-                best_external_trend.append(art["best_external_torques"])    # list of arrays
-                best_alpha_trend.append(art["best_alpha"])                   # per piece
-                best_beta_trend.append(art["best_beta"])                     # per piece
-                best_gamma_trend.append(art["best_gamma"])                   # per piece
-            else:
-                # Repeat previous values to keep a piecewise-constant best-so-far curve
-                best_fitness_trend.append(best_fitness_trend[-1])
-                best_solutions.append(best_solutions[-1])
-                best_individual_idx.append(best_individual_idx[-1])
-
-                best_fitnesses_tau_trend.append(best_fitnesses_tau_trend[-1])
-                best_fitnesses_path_trend.append(best_fitnesses_path_trend[-1])
-                best_configs_trend.append(best_configs_trend[-1])
-                best_secondary_fit_trend.append(best_secondary_fit_trend[-1])
-                best_manip_trend.append(best_manip_trend[-1])
-                best_range_trend.append(best_range_trend[-1])
-                best_gravity_trend.append(best_gravity_trend[-1])
-                best_external_trend.append(best_external_trend[-1])
-                best_alpha_trend.append(best_alpha_trend[-1])
-                best_beta_trend.append(best_beta_trend[-1])
-                best_gamma_trend.append(best_gamma_trend[-1])
-
-            # Persist ALL individuals' statuses for this batch (always append, like christian_so)
+            best_fitnesses_tau_trend.append(art["f_tau"])               # scalar
+            best_fitnesses_path_trend.append(art["f_path"])             # scalar
+            best_configs_trend.append(art["best_configs"])              # list per piece
+            best_secondary_fit_trend.append(art["best_followers"])      # followers cost per piece
+            best_manip_trend.append(art["best_primary_followers"])      # manipulability per piece
+            best_range_trend.append(art["best_secondary_followers"])    # range-centering per piece
+            best_gravity_trend.append(art["best_gravity_torques"])      # list of arrays
+            best_external_trend.append(art["best_external_torques"])    # list of arrays
+            # Persist ALL individuals' statuses for this batch
             simulation_status.append(batch_sim_status)
             batch_sim_status = []
-
+            best_alpha_trend.append(art["best_alpha"])                   # per piece
+            best_beta_trend.append(art["best_beta"])                     # per piece
+            best_gamma_trend.append(art["best_gamma"])                   # per piece
             # Persist complete trends for this batch (batch → individuals → pieces)
             complete_alpha_trend.append(batch_complete_alpha)
             complete_beta_trend.append(batch_complete_beta)
@@ -643,17 +553,20 @@ if __name__ == "__main__":
             batch_complete_alpha = []
             batch_complete_beta = []
             batch_complete_gamma = []
-
+            # Derive complete trends for this batch directly from batch_artifacts
+            complete_alpha_trend.append([a["best_alpha"] for a in batch_artifacts])
+            complete_beta_trend.append([a["best_beta"] for a in batch_artifacts])
+            complete_gamma_trend.append([a["best_gamma"] for a in batch_artifacts])
             xb, yb, rxb, xee, yee, rxee, xp, yp, q01, q02, q03, q04, q05, q06 = batch_best_x
             iter_idx = len(best_fitness_trend)
-            print(f"[Iter {iter_idx:03d}] best_fitness_so_far = {best_fitness_trend[-1]:.6f} (batch best = {batch_best_fit:.6f})")
+            print(f"[Iter {iter_idx:03d}] best_fitness = {batch_best_fit:.6f}")
             for idx, (name, val) in enumerate(zip(variable_names, batch_best_x)):
                 try:
                     print(f"  {idx:02d} {name:>10s} = {float(val): .6f}")
                 except Exception:
                     print(f"  {idx:02d} {name:>10s} = {val}")
-
-            #----------------------applicazione mujoco--------------------------
+            # reset for next batch
+            #----------------------appiclazione mujoco--------------------------
             set_body_pose(model, data, base_body_id, [xb, yb, 0.1], euler_to_quaternion(rxb, 0, 0)) 
             mujoco.mj_forward(model, data)
 
@@ -677,7 +590,6 @@ if __name__ == "__main__":
                 mujoco.mj_forward(model, data)
                 if viewer: viewer.sync()
 
-            # reset for next batch
             current_batch_points = []
             batch_f_tau = []
             batch_f_path = []
@@ -695,9 +607,8 @@ if __name__ == "__main__":
         n_init=n_init,
         max_evals=max_evals,
         batch_size=batch_size,
-        verbose=verbose_turbo,
+        verbose=verbose,
         use_ard=use_ard,
-        device='cuda',
         n_training_steps=n_training_steps,
         n_trust_regions=n_trust_regions
     )
@@ -714,49 +625,29 @@ if __name__ == "__main__":
 
     # ---------------- Finalize logs (handle incomplete last batch) ----------------
     if len(current_batch_points) > 0:
+        # pick the best within the (possibly incomplete) last batch
         best_idx = int(np.argmin([pt[1] for pt in current_batch_points]))
         batch_best_x, batch_best_fit = current_batch_points[best_idx]
+        best_fitness_trend.append(batch_best_fit)
+        best_solutions.append(np.array(batch_best_x, dtype=float))
+
+        # also persist the corresponding artifacts into the trend lists
         art = batch_artifacts[best_idx]
-
-        if batch_best_fit < starting_fitness or len(best_fitness_trend) == 0:
-            starting_fitness = batch_best_fit
-            best_fitness_trend.append(starting_fitness)
-            best_solutions.append(np.array(batch_best_x, dtype=float))
-            best_individual_idx.append(best_idx)
-
-            best_fitnesses_tau_trend.append(art["f_tau"])               # scalar
-            best_fitnesses_path_trend.append(art["f_path"])             # scalar
-            best_configs_trend.append(art["best_configs"])              # list per piece
-            best_secondary_fit_trend.append(art["best_followers"])      # followers cost per piece
-            best_manip_trend.append(art["best_primary_followers"])      # manipulability per piece
-            best_range_trend.append(art["best_secondary_followers"])    # range-centering per piece
-            best_gravity_trend.append(art["best_gravity_torques"])      # list of arrays
-            best_external_trend.append(art["best_external_torques"])    # list of arrays
-            best_alpha_trend.append(art["best_alpha"])                   # per piece
-            best_beta_trend.append(art["best_beta"])                     # per piece
-            best_gamma_trend.append(art["best_gamma"])                   # per piece
-        else:
-            best_fitness_trend.append(best_fitness_trend[-1])
-            best_solutions.append(best_solutions[-1])
-            best_individual_idx.append(best_individual_idx[-1])
-
-            best_fitnesses_tau_trend.append(best_fitnesses_tau_trend[-1])
-            best_fitnesses_path_trend.append(best_fitnesses_path_trend[-1])
-            best_configs_trend.append(best_configs_trend[-1])
-            best_secondary_fit_trend.append(best_secondary_fit_trend[-1])
-            best_manip_trend.append(best_manip_trend[-1])
-            best_range_trend.append(best_range_trend[-1])
-            best_gravity_trend.append(best_gravity_trend[-1])
-            best_external_trend.append(best_external_trend[-1])
-            best_alpha_trend.append(best_alpha_trend[-1])
-            best_beta_trend.append(best_beta_trend[-1])
-            best_gamma_trend.append(best_gamma_trend[-1])
-
+        best_fitnesses_tau_trend.append(art["f_tau"])               # scalar
+        best_fitnesses_path_trend.append(art["f_path"])             # scalar
+        best_configs_trend.append(art["best_configs"])              # list per piece
+        best_secondary_fit_trend.append(art["best_followers"])      # followers cost per piece
+        best_manip_trend.append(art["best_primary_followers"])      # manipulability per piece
+        best_range_trend.append(art["best_secondary_followers"])    # range-centering per piece
+        best_gravity_trend.append(art["best_gravity_torques"])      # list of arrays
+        best_external_trend.append(art["best_external_torques"])    # list of arrays
         # Persist remaining per-individual statuses for the last (partial) batch
         if len(batch_sim_status) > 0:
             simulation_status.append(batch_sim_status)
             batch_sim_status = []
-
+        best_alpha_trend.append(art["best_alpha"])                   # per piece
+        best_beta_trend.append(art["best_beta"])                     # per piece
+        best_gamma_trend.append(art["best_gamma"])                   # per piece
         # Persist remaining complete trends for the last (partial) batch
         if len(batch_complete_alpha) > 0 or len(batch_complete_beta) > 0 or len(batch_complete_gamma) > 0:
             complete_alpha_trend.append(batch_complete_alpha)
@@ -765,9 +656,18 @@ if __name__ == "__main__":
             batch_complete_alpha = []
             batch_complete_beta = []
             batch_complete_gamma = []
+        # Derive complete trends for the last (partial) batch from batch_artifacts
+        complete_alpha_trend.append([a["best_alpha"] for a in batch_artifacts])
+        complete_beta_trend.append([a["best_beta"] for a in batch_artifacts])
+        complete_gamma_trend.append([a["best_gamma"] for a in batch_artifacts])
 
         iter_idx = len(best_fitness_trend)
-        print(f"[Iter {iter_idx:03d}] best_fitness_so_far = {best_fitness_trend[-1]:.6f} (last batch best = {batch_best_fit:.6f})")
+        print(f"[Iter {iter_idx:03d}] best_fitness = {batch_best_fit:.6f}")
+        for idx, (name, val) in enumerate(zip(variable_names, batch_best_x)):
+            try:
+                print(f"  {idx:02d} {name:>10s} = {float(val): .6f}")
+            except Exception:
+                print(f"  {idx:02d} {name:>10s} = {val}")
 
         # reset batch accumulators for cleanliness
         current_batch_points = []
@@ -780,46 +680,46 @@ if __name__ == "__main__":
 
     # ---------------- Persist results to CSV ----------------
     df_fit = pd.DataFrame(best_fitness_trend, columns=["fitness"])
-    df_fit.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"fitness_fL.csv"), index=False)
+    df_fit.to_csv(os.path.join(save_dir, "results/data", f"fitness_fL_{timestamp_tag}.csv"), index=False)
 
     df_fit = pd.DataFrame(best_fitnesses_tau_trend, columns=["fitness"])
-    df_fit.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"Primary_leader.csv"), index=False)
+    df_fit.to_csv(os.path.join(save_dir, "results/data", f"Primary_leader_{timestamp_tag}.csv"), index=False)
 
     df_fit = pd.DataFrame(best_fitnesses_path_trend, columns=["fitness"])
-    df_fit.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"Secondary_leader.csv"), index=False)
+    df_fit.to_csv(os.path.join(save_dir, "results/data", f"Secondary_leader_{timestamp_tag}.csv"), index=False)
 
         # Follower problems scalarized trend
     n_pieces = len(best_secondary_fit_trend[0])
     cols = [f"piece{p+1}" for p in range(n_pieces)]
 
     df = pd.DataFrame(best_secondary_fit_trend, columns=cols)
-    df.insert(0, "generation", range(len(best_secondary_fit_trend)))  # optional but handy
+    df.insert(0, "batch", range(len(best_secondary_fit_trend)))  # optional but handy
 
     out_dir = os.path.join(save_dir, "results", "data")
     os.makedirs(out_dir, exist_ok=True)
-    df.to_csv(os.path.join(out_dir, f"{parameters.csv_directory}", f"fitness_followers.csv"), index=False)
+    df.to_csv(os.path.join(out_dir, f"fitness_followers_{timestamp_tag}.csv"), index=False)
 
         # Primary indicator follower (manipulability)
     n_pieces = len(best_manip_trend[0])
     cols = [f"piece{p+1}" for p in range(n_pieces)]
 
     df = pd.DataFrame(best_manip_trend, columns=cols)
-    df.insert(0, "generation", range(len(best_manip_trend)))  # optional but handy
+    df.insert(0, "batch", range(len(best_manip_trend)))  # optional but handy
 
     out_dir = os.path.join(save_dir, "results", "data")
     os.makedirs(out_dir, exist_ok=True)
-    df.to_csv(os.path.join(out_dir, f"{parameters.csv_directory}", f"best_primary_followers.csv"), index=False)
+    df.to_csv(os.path.join(out_dir, f"best_primary_followers_{timestamp_tag}.csv"), index=False)
 
         # Secondary indicator follower (center in the range)
     n_pieces = len(best_range_trend[0])
     cols = [f"piece{p+1}" for p in range(n_pieces)]
 
     df = pd.DataFrame(best_range_trend, columns=cols)
-    df.insert(0, "generation", range(len(best_range_trend)))  # optional but handy
+    df.insert(0, "batch", range(len(best_range_trend)))  # optional but handy
 
     out_dir = os.path.join(save_dir, "results", "data")
     os.makedirs(out_dir, exist_ok=True)
-    df.to_csv(os.path.join(out_dir, f"{parameters.csv_directory}", f"best_secondary_followers.csv"), index=False)
+    df.to_csv(os.path.join(out_dir, f"best_secondary_followers_{timestamp_tag}.csv"), index=False)
 
         # Save the complete trends of alpha beta and gamma
     def save_trend_wide(trend_data, filename):
@@ -838,16 +738,16 @@ if __name__ == "__main__":
             columns = [f"piece{p+1}_joint{j+1}" for p in range(n_pieces) for j in range(n_joints)]
 
             df = pd.DataFrame(flat_rows, columns=columns)
-            df.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", filename), index=False)
+            df.to_csv(os.path.join(save_dir, "results/data", filename), index=False)
 
-    save_trend_wide(complete_alpha_trend, f"complete_alpha_trend_wide.csv")
-    save_trend_wide(complete_beta_trend, f"complete_beta_trend_wide.csv")
-    save_trend_wide(complete_gamma_trend, f"complete_gamma_trend_wide.csv")
+    save_trend_wide(complete_alpha_trend, f"complete_alpha_trend_wide_{timestamp_tag}.csv")
+    save_trend_wide(complete_beta_trend, f"complete_beta_trend_wide_{timestamp_tag}.csv")
+    save_trend_wide(complete_gamma_trend, f"complete_gamma_trend_wide_{timestamp_tag}.csv")
 
         # Save the list of indices
-    df_best = pd.DataFrame({"generation": range(len(best_individual_idx)),
+    df_best = pd.DataFrame({"batch": range(len(best_individual_idx)),
                         "best_individual": best_individual_idx})
-    df_best.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"best_individuals_indices.csv"), index=False)
+    df_best.to_csv(os.path.join(save_dir, "results/data", f"best_individuals_indices_{timestamp_tag}.csv"), index=False)
 
 
         # Flatten the best_gravity_trend into rows: [generation, individual, tau1, ..., tau6]
@@ -875,7 +775,7 @@ if __name__ == "__main__":
     columns_grav = [f"tau_g_piece{p}_{j+1}" for p in range(n_pieces) for j in range(n_joints)]
 
     df_gravity = pd.DataFrame(flat_gravity, columns=columns_grav)
-    df_gravity.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"best_gravity_torques.csv"), index=False)
+    df_gravity.to_csv(os.path.join(save_dir, "results/data", f"best_gravity_torques_{timestamp_tag}.csv"), index=False)
 
         # ---- External Torques ----
     flat_external = []
@@ -888,11 +788,11 @@ if __name__ == "__main__":
     columns_ext = [f"tau_ext_piece{p}_{j+1}" for p in range(n_pieces) for j in range(n_joints)]
 
     df_external = pd.DataFrame(flat_external, columns=columns_ext)
-    df_external.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"best_external_torques.csv"), index=False)
+    df_external.to_csv(os.path.join(save_dir, "results/data", f"best_external_torques_{timestamp_tag}.csv"), index=False)
 
         # Best configuration trend
     df_x = pd.DataFrame(best_solutions, columns=["x_b", "y_b", "theta_x_b", "x_t", "y_t", "theta_x_t", "x_p", "y_p", "q01", "q02", "q03", "q04", "q05", "q06"])
-    df_x.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"best_solutions.csv"), index=False)
+    df_x.to_csv(os.path.join(save_dir, "results/data", f"best_solutions_{timestamp_tag}.csv"), index=False)
 
         # Status of each individual in each generation
     stringified_status = [
@@ -901,26 +801,7 @@ if __name__ == "__main__":
         ]
     popsize_string = len(stringified_status[0])
     df_status = pd.DataFrame(stringified_status, columns=[f"ind_{i}" for i in range(popsize_string)])
-    df_status.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"simulation_status.csv"), index=False)
-
-    # Save the best configurations (one row per batch, one column per piece)
-    if best_configs_trend:
-     df_configs = pd.DataFrame(best_configs_trend,
-                              columns=[f"config_{i}" for i in range(len(best_configs_trend[0]))])
-     df_configs.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}",
-                                   f"best_configs.csv"),
-                      index=False)
-    else:
-     print("No best_configs_trend to save — skipping best_configs CSV.")
-
-# Save the total optimization time (in seconds)
-    df_time = pd.DataFrame([[elapsed_s]], columns=["total_time"])
-    df_time.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}",
-                            f"total_time.csv"),
-               index=False)
-
-
-
+    df_status.to_csv(os.path.join(save_dir, "results/data", f"simulation_status_{timestamp_tag}.csv"), index=False)
 
     print("\nOptimization terminated:")
     if parameters.verbose:
@@ -943,13 +824,6 @@ if __name__ == "__main__":
 
             # Set tool
             set_body_pose(model, data, screwdriver_body_id, [best_solutions[-1][3], best_solutions[-1][4], 0.03], euler_to_quaternion(best_solutions[-1][5], 0, 0))
-
-            # NOTE: put tool frame in the correct position (otherwise the fitness you compute is wrong!!)
-            _, _, A_ee_t1 = get_homogeneous_matrix(best_solutions[-1][3], float(best_solutions[-1][4]), 0.03, np.degrees(float(best_solutions[-1][5])), 0, 0)
-            _, _, A_t1_t  = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
-            A_ee_t = A_ee_t1 @ A_t1_t
-            tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
-            set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
             # Set robot joints
             q0_final = np.array([best_solutions[-1][8], best_solutions[-1][9], best_solutions[-1][10],

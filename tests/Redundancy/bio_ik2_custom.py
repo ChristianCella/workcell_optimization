@@ -3,6 +3,7 @@ import os
 # On Windows, use GLFW for GPU rendering
 os.environ['MUJOCO_GL'] = 'glfw'
 
+from pyexpat import model
 import time
 import os, sys
 import numpy as np
@@ -17,8 +18,12 @@ import functools
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../utils'))
 sys.path.append(base_dir)
 import fonts
-from transformations import euler_to_quaternion, rotm_to_quaternion
-from mujoco_utils import set_body_pose, setup_target_frames, inverse_manipulability
+from transformations import rotm_to_quaternion, get_world_wrench, get_homogeneous_matrix, euler_to_quaternion
+from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian
+
+manager_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../scene_manager'))
+sys.path.append(manager_dir)
+from create_scene import create_scene
 
 
 # BioIK2 core solver and goal classes
@@ -81,7 +86,7 @@ class ManipulabilityGoal(Goal):
         J = np.vstack([Jp, Jr])[:,:6]
         JJt = J @ J.T
         det = np.linalg.det(JJt)
-        return 1e3 if det <= 1e-12 else 1.0/np.sqrt(det)
+        return 1e12 if det <= 1e-12 else 1.0/np.sqrt(det)
 
 class AntiAlignGoal(Goal):
     ''' 
@@ -97,40 +102,50 @@ class AntiAlignGoal(Goal):
 
 class CollisionGoal(Goal):
     """
-    A MuJoCo-based collision penalty that drives the robot away from self-intersections 
-    and from penetrating the floor.
-    This goal:
-      3. Filters for:
-         • Robot-robot contacts (two distinct geoms both in robot_geom_ids), and
-         • Robot-floor contacts (one geom in robot_geom_ids, the other == floor_geom_id).
-      4. For each penetrating contact (dist < 0), adds:
-           depth_penalty = max(0, -dist) * 1000.0   # scales with penetration depth
-           base_penalty  = 1.0                      # constant per contact
-           pen += depth_penalty + base_penalty
-      5. Returns wt * pen, allowing you to dial in how strongly collisions are avoided
-         relative to other optimization objectives.
+    Penalize any penetrating contact in the scene (regardless of which geoms collide).
+    Options:
+      - exclude_same_body: ignore contacts where both geoms belong to the same body
+      - allow_geom_pairs: iterable of (g1, g2) to ignore (unordered)
     """
-    def __init__(self, robot_geom_ids, floor_geom_id=None, wt=1e5, weight=1.0):
+    def __init__(self, wt=1e5, weight=1.0, exclude_same_body=True, allow_geom_pairs=None):
         super().__init__(weight)
-        self.robot_geom_ids = robot_geom_ids
-        self.floor_id       = floor_geom_id
-        self.wt             = wt
+        self.wt = float(wt)
+        self.exclude_same_body = bool(exclude_same_body)
+        # store as frozenset of 2-tuples with sorted ids for easy membership checks & pickling
+        self.allow_geom_pairs = frozenset(
+            tuple(sorted(map(int, pair))) for pair in (allow_geom_pairs or [])
+        )
+
     def error(self, q, model, data, tool_site_id):
-        data.qpos[:model.nv] = q; mujoco.mj_forward(model, data); mujoco.mj_collision(model, data)
-        cost_col = 0.0
+        # keep signature consistent with other goals
+        data.qpos[:model.nv] = q
+        mujoco.mj_forward(model, data)
+
+        penalty = 0.0
         for i in range(data.ncon):
-            c = data.contact[i]; g1, g2 = c.geom1, c.geom2
-            #rr = (g1 in self.robot_geom_ids and g2 in self.robot_geom_ids and g1!=g2)
-            #rf = (self.floor_id is not None and 
-            #     ((g1 in self.robot_geom_ids and g2==self.floor_id) or 
-            #       (g2 in self.robot_geom_ids and g1==self.floor_id)))
-            #if rr or rf:
-            if data.ncon > 0:
-                #pen += max(0.0, -c.dist)*1000.0 + 1.0
-                cost_col = self.wt
-            else:
-                cost_col = 0.0
-        return cost_col
+            c = data.contact[i]
+            if c.dist >= 0.0:
+                continue  # not penetrating
+
+            g1, g2 = int(c.geom1), int(c.geom2)
+
+            # Skip explicitly allowed pairs
+            if tuple(sorted((g1, g2))) in self.allow_geom_pairs:
+                continue
+
+            # Optionally skip contacts within the same body (common to co-located geoms)
+            if self.exclude_same_body:
+                b1 = int(model.geom_bodyid[g1])
+                b2 = int(model.geom_bodyid[g2])
+                if b1 == b2:
+                    continue
+
+            depth = -float(c.dist)                 # penetration depth (meters)
+            penalty += depth * 1000.0 + 1.0        # depth-scaled + constant cost per contact
+
+        return self.wt * penalty
+
+
 
 # Global function for parallel cost evaluation
 def evaluate_cost_parallel(args):
@@ -157,8 +172,15 @@ def evaluate_cost_parallel(args):
         elif goal_type == 'AntiAlignGoal':
             goals.append(AntiAlignGoal(goal_params['target_z'], goal_params['weight']))
         elif goal_type == 'CollisionGoal':
-            goals.append(CollisionGoal(goal_params['robot_geom_ids'], goal_params['floor_id'], 
-                                     goal_params['wt'], goal_params['weight']))
+            goals.append(
+                CollisionGoal(
+                    wt=goal_params['wt'],
+                    weight=goal_params['weight'],
+                    exclude_same_body=goal_params.get('exclude_same_body', True),
+                    allow_geom_pairs=goal_params.get('allow_geom_pairs', []),
+                )
+            )
+
     
     # Compute cost
     total_cost = 0.0
@@ -190,8 +212,15 @@ def evaluate_costs_batch(qs, xml_path, tool_site_id, goals_data):
         elif goal_type == 'AntiAlignGoal':
             goals.append(AntiAlignGoal(goal_params['target_z'], goal_params['weight']))
         elif goal_type == 'CollisionGoal':
-            goals.append(CollisionGoal(goal_params['robot_geom_ids'], goal_params['floor_id'], 
-                                     goal_params['wt'], goal_params['weight']))
+            goals.append(
+                CollisionGoal(
+                    wt=goal_params['wt'],
+                    weight=goal_params['weight'],
+                    exclude_same_body=goal_params.get('exclude_same_body', True),
+                    allow_geom_pairs=goal_params.get('allow_geom_pairs', []),
+                )
+            )
+
     
     costs = []
     for q in qs:
@@ -262,10 +291,10 @@ class BioIK2Solver:
                 }))
             elif isinstance(goal, CollisionGoal):
                 goals_data.append(('CollisionGoal', {
-                    'robot_geom_ids': goal.robot_geom_ids,
-                    'floor_id': goal.floor_id,
                     'wt': goal.wt,
-                    'weight': goal.weight
+                    'weight': goal.weight,
+                    'exclude_same_body': goal.exclude_same_body,
+                    'allow_geom_pairs': [tuple(pair) for pair in goal.allow_geom_pairs],
                 }))
         return goals_data
 
@@ -299,20 +328,25 @@ class BioIK2Solver:
         return costs
 
     def solve(self, tol=1e-2):
-        # Initialize population
         pop = [self.lb + np.random.rand(self.dim)*(self.ub-self.lb) for _ in range(self.pop_size)]
         costs = self.evaluate_population_parallel(pop)
-        
-        start = time.time()
+
+        start = time.perf_counter()
+        deadline = start + float(self.time_limit)
+
         best = min(costs)
         iteration = 0
 
         while True:
             iteration += 1
-            elapsed = time.time() - start
-            if elapsed >= self.time_limit:
+
+            # Hard stop check
+            now = time.perf_counter()
+            if now >= deadline:
+                elapsed = now - start
                 print(f"[stop] time limit reached ({elapsed:.3f}s ≥ {self.time_limit}s)")
                 break
+
             if best <= tol:
                 print(f"[stop] converged (best={best:.2e} ≤ tol={tol:.2e}) after {iteration-1} iterations")
                 break
@@ -323,18 +357,21 @@ class BioIK2Solver:
             costs = [costs[i] for i in idx_sort]
             best = costs[0]
 
-            # Polish elites with local optimization (sequential - these are few)
+            # --- Elite polishing with time guard ---
             for i in range(self.n_elites):
-                res = minimize(lambda x: self.cost(x), pop[i], 
-                               method='L-BFGS-B', 
-                               bounds=list(zip(self.lb, self.ub)), 
-                               options={'ftol':1e-6})
+                if time.perf_counter() >= deadline:
+                    break  # no time left to polish further elites
+                # keep polish bounded so one elite can't blow the budget
+                res = minimize(lambda x: self.cost(x), pop[i],
+                            method='L-BFGS-B',
+                            bounds=list(zip(self.lb, self.ub)),
+                            options={'ftol': 1e-6, 'maxiter': 50})  # small cap
                 pop[i] = res.x
                 costs[i] = self.cost(res.x)
                 best = min(best, costs[i])
 
-            # Generate new population through breeding
-            new_pop = pop[:self.n_elites]  # Keep elites
+            # --- Breed new population ---
+            new_pop = pop[:self.n_elites]
             while len(new_pop) < self.pop_size:
                 a, b = np.random.choice(self.pop_size, 2, replace=False)
                 p1, p2 = pop[a], pop[b]
@@ -344,8 +381,22 @@ class BioIK2Solver:
                 child[mask] += (np.random.rand(mask.sum())*2-1)*(self.ub-self.lb)[mask]
                 new_pop.append(np.clip(child, self.lb, self.ub))
 
-            # Evaluate new population in parallel
-            new_costs = self.evaluate_population_parallel(new_pop[self.n_elites:])
+            # --- Evaluate tail in small batches with time guard ---
+            tail = new_pop[self.n_elites:]
+            new_costs = []
+            batch_size = max(1, len(tail) // (self.n_workers or 1) // 2)  # smaller batches
+            for i in range(0, len(tail), batch_size):
+                if time.perf_counter() >= deadline:
+                    break  # stop scheduling new work
+                batch = tail[i:i+batch_size]
+                new_costs.extend(self.evaluate_population_parallel(batch))
+
+            # If nothing new was evaluated (out of time), stop
+            if not new_costs and time.perf_counter() >= deadline:
+                elapsed = time.perf_counter() - start
+                print(f"[stop] time limit reached ({elapsed:.3f}s ≥ {self.time_limit}s)")
+                break
+
             costs = costs[:self.n_elites] + new_costs
             pop = new_pop
             best = min(best, min(costs))
@@ -353,90 +404,69 @@ class BioIK2Solver:
         print(f"Completed solve(): iterations={iteration}, best_cost={best:.3e}, cost_evals={self.eval_count}")
         return pop[int(np.argmin(costs))]
 
+
 if __name__ == '__main__':
+
+    # Path setup 
+    tool_filename = "screwdriver.xml"
+    robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
+    output_scene_filename = "final_scene.xml"
+    piece_name = "table_grip.xml" 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
-    sys.path.append(base_dir)
-    xml_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene.xml")
 
-    model = mujoco.MjModel.from_xml_path(xml_path)
-    data = mujoco.MjData(model)
+    # Create the scene
+    model_path = create_scene(tool_name=tool_filename, robot_and_tool_file_name=robot_and_tool_file_name,
+                              output_scene_filename=output_scene_filename, piece_name=piece_name, base_dir=base_dir)
 
-    base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
-    tool_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
-    tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, 'tool_site')
-    screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "screw_top")
+    # Load the newly created model
+    model = mujoco.MjModel.from_xml_path(model_path)
+    data  = mujoco.MjData(model)
+    mujoco.mj_resetData(model, data)
+
+    # Get body/site IDs
+    base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
+    tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
+    piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "table_grip")
+    ref_body_ids = []
+    for i in range(model.nbody):
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)
+        if name and name.startswith("hole_") and name.endswith("_frame_body"):
+            ref_body_ids.append(i)
+    tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
+    screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
     jlimits = model.jnt_range[:6]
 
     robot_geoms = [i for i in range(model.ngeom)
                    if 'collision' in (mujoco.mj_id2name(model,mujoco.mjtObj.mjOBJ_GEOM,i) or '')]
     floor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, 'floor')
 
-    target_poses = [
-        (np.array([0.2,0.2,0.2]), R.from_euler('xyz',[180, 0, 45],True).as_quat())
-        #(np.array([0.3, 0.1,0.7]), R.from_euler('xyz',[0,0,0],True).as_quat()),
-        #(np.array([0.3, 0.3,0.3]), R.from_euler('xyz',[135,0,90],True).as_quat()),
-        #(np.array([-0.4,0.5,0.7]), R.from_euler('xyz',[30,0,0],True).as_quat()),
-        #(np.array([0.2,0.2,0.1]), R.from_euler('xyz',[180,0,90],True).as_quat()),
-    ]
-
     #q_start = np.radians([-8.38,-68.05,-138,-64,90,-7.85])
     q_start = np.zeros(6)  # Start from zero configuration
     show_pose_duration = 3.0
 
-    ref_ids = []
-    for i in range(len(target_poses)):
-        name = f'reference_target_{i+1}'
-        bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
-        if bid == -1:
-            bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, 'reference_target')
-        ref_ids.append(bid)
-
     with mujoco.viewer.launch_passive(model, data) as viewer:
 
-        # Set robot base (matrix A^w_b)
-        t_w_b = np.array([0, 0, 0])
-        R_w_b = R.from_euler('xyz', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
-        A_w_b = np.eye(4)
-        A_w_b[:3, 3] = t_w_b
-        A_w_b[:3, :3] = R_w_b
+        # Set the new robot base (matrix A^w_b)
+        _, _, A_w_b = get_homogeneous_matrix(0, 0, 0.1, 0, 0, 0)
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
+        # Set the piece in the environment (matrix A^w_p)
+        _, _, A_w_p = get_homogeneous_matrix(0.2, 0.2, 0, 0, 0, 0)
+        set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
+
         # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-        t_ee_t1 = np.array([0, 0.15, 0])
-        R_ee_t1 = R.from_euler('xyz', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix()
-        A_ee_t1 = np.eye(4)
-        A_ee_t1[:3, 3] = t_ee_t1
-        A_ee_t1[:3, :3] = R_ee_t1
+        _, _, A_ee_t1 = get_homogeneous_matrix(0, 0, 0.03, np.degrees(0), 0, 0)
         set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
-        # Fixed transformation 'tool top (t1) => tool tip (t)'
-        t_t1_t = np.array([0, 0.0, 0.26])
-        R_t1_t = R.from_euler('xyz', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
-        A_t1_t = np.eye(4)
-        A_t1_t[:3, 3] = t_t1_t
-        A_t1_t[:3, :3] = R_t1_t
-
-        # End-effector with respect to wrist3 (Fixed transformation)
-        t_wl3_ee = np.array([0, 0.1, 0])
-        R_wl3_e = R.from_euler('xyz', [np.radians(-90), 0, 0], degrees=False).as_matrix()
-        A_wl3_ee = np.eye(4)
-        A_wl3_ee[:3, 3] = t_wl3_ee
-        A_wl3_ee[:3, :3] = R_wl3_e
+        # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
+        _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
 
         # Update the position of the tool tip (Just for visualization purposes)
-        A_ee_t = A_ee_t1 @ A_t1_t  # combine the two transformations
+        A_ee_t = A_ee_t1 @ A_t1_t
         set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
-        # Piece in the world (define A^w_p) => this is also used to put the frame in space  
-        theta_w_p_x_0 = np.radians(180)
-        theta_w_p_y_0 = np.radians(0)
-        theta_w_p_z_0 = np.radians(45)
-        t_w_p = np.array([0.2, 0.2, 0.2])
-        R_w_p = R.from_euler('xyz', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
-        A_w_p = np.eye(4)
-        A_w_p[:3, 3] = t_w_p
-        A_w_p[:3, :3] = R_w_p
-        setup_target_frames(model, data, ref_ids, target_poses)
+        # End-effector with respect to wrist3 (NOTE: this is always fixed)
+        _, _, A_wl3_ee = get_homogeneous_matrix(0, 0.1, 0, -90, 0, 0)
 
         # Set the initial configuration
         data.qpos[:6] = q_start       
@@ -445,27 +475,31 @@ if __name__ == '__main__':
 
         input("Press Enter to start optimization...")
 
-        for idx, (pos, quat) in enumerate(target_poses):
-            print(f"\n=== Optimizing target {idx+1}/{len(target_poses)} ===")
+        for j in range(len(ref_body_ids)):
+
+            #Get the pose of the target 
+            posit = data.xpos[ref_body_ids[j]]
+            rotm = data.xmat[ref_body_ids[j]].reshape(3, 3)
+            quat = R.from_matrix(rotm).as_quat()          
             z_dir = R.from_quat(quat).as_matrix()[:,2]
 
             # Try multiprocessing first, fall back to threading if issues
             try:
-                solver = BioIK2Solver(model, data, tool_site_id, jlimits, xml_path,
-                                      population_size=3000, n_elites=400, time_limit=2.0,
-                                      use_multiprocessing=True, n_workers=20)
+                solver = BioIK2Solver(model, data, tool_site_id, jlimits, model_path,
+                                      population_size=200, n_elites=40, time_limit=4.0,
+                                      use_multiprocessing=True, n_workers=10)
             except:
                 print("Multiprocessing failed, falling back to threading...")
-                solver = BioIK2Solver(model, data, tool_site_id, jlimits, xml_path,
+                solver = BioIK2Solver(model, data, tool_site_id, jlimits, model_path,
                                       population_size=3000, n_elites=400, time_limit=2.0,
-                                      use_multiprocessing=False, n_workers=20)
+                                      use_multiprocessing=False, n_workers=10)
 
-            solver.add_goal(PoseGoal(pos, z_dir, weight=1e10))
+            solver.add_goal(PoseGoal(posit, z_dir, weight=1e10))
             solver.add_goal(JointLimitGoal(jlimits, weight=0))
-            solver.add_goal(ElbowGoal(jlimits, alpha=0.4, weight=0))
+            #solver.add_goal(ElbowGoal(jlimits, alpha=0.4, weight=0))
             solver.add_goal(ManipulabilityGoal(weight=1e3))
             solver.add_goal(AntiAlignGoal(z_dir, weight=1e4))
-            solver.add_goal(CollisionGoal(robot_geoms, floor_id, wt=1e5, weight=1.0))
+            solver.add_goal(CollisionGoal(wt=1e4, weight=1.0))
 
             t0 = time.time()
             q_opt = solver.solve(tol=1e-5)

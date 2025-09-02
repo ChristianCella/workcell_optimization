@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 NT = 4          # pieces per individual
 NU = 1          # ν in Eq. (5); set this to the value used in your paper
 
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/screwing/turbo_ikflow"))
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/screwing/cma_es_ikflow"))
 alpha_path     = os.path.join(base_dir, "complete_alpha_trend_wide.csv")
 beta_path      = os.path.join(base_dir, "complete_beta_trend_wide.csv")
 gamma_path     = os.path.join(base_dir, "complete_gamma_trend_wide.csv")

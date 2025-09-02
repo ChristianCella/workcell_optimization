@@ -23,7 +23,7 @@ class ScrewingTurbo:
     # Control variables
     verbose: bool = False # Display messages
     show_pose_duration: int = 0.05  # Seconds to show each pose
-    activate_gui : bool = True  # Activate the GUI for visualization
+    activate_gui : bool = False  # Activate the GUI for visualization
     csv_directory: str = "screwing/turbo_ikflow"  # Directory to save CSV files
 
     # Ikflow variables
@@ -38,6 +38,24 @@ class ScrewingTurbo:
     popsize: int = 40  # number of individuals
     n_iter: int = 100  # number of iterations
 
+# ! At the end, we did not use this (it takes too long)
+@dataclass
+class ScrewingTurboBioik2:
+
+    # Control variables
+    verbose: bool = False # Display messages
+    show_pose_duration: int = 0.05  # Seconds to show each pose
+    activate_gui : bool = True  # Activate the GUI for visualization
+    csv_directory: str = "screwing/turbo_bioik2"  # Directory to save CSV files
+
+@dataclass
+class ScrewingTurboDLS:
+
+    # Control variables
+    verbose: bool = False # Display messages
+    show_pose_duration: int = 0.05  # Seconds to show each pose
+    activate_gui : bool = True  # Activate the GUI for visualization
+    csv_directory: str = "screwing/turbo_dls"  # Directory to save CSV files
 
 @dataclass
 class ScrewingCMAES:
