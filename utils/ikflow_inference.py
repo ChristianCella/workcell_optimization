@@ -87,18 +87,23 @@ class FastIKFlowSolver:
             torch.backends.cudnn.deterministic = False
 
         # robot
-        urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e" / "ur5e.urdf"
+        urdf_path = project_root / "kuka_iiwa_14_mujoco_utils" / "kuka" / "patched_iiwa14.urdf"
         with suppress_native_stderr():
 
             robot = Robot(
                 name="ur5e_custom",
                 urdf_filepath=str(urdf_path),
-                active_joints=[
-                    "shoulder_pan_joint","shoulder_lift_joint","elbow_joint",
-                    "wrist_1_joint","wrist_2_joint","wrist_3_joint",
-                ],
-                base_link="base_link",
-                end_effector_link_name="wrist_3_link",
+                active_joints = [
+                    "iiwa_joint_1",
+                    "iiwa_joint_2",
+                    "iiwa_joint_3",
+                    "iiwa_joint_4",
+                    "iiwa_joint_5",
+                    "iiwa_joint_6",
+                    "iiwa_joint_7"
+                    ],
+                base_link="iiwa_link_0",
+                end_effector_link_name="iiwa_link_ee",
                 ignored_collision_pairs=[],
                 collision_capsules_by_link=None,
             )
@@ -154,8 +159,8 @@ class FastIKFlowSolver:
         ckpt = (
             project_root
             / "ikflow" / "ikflow" / "weights"
-            / "ur5e_custom--Aug.07.2025_11-27AM"
-            / "weights-epoch=250.ckpt"
+            / "kuka_custom--Sep.03.2025_01-49PM"
+            / "weights-epoch=24.ckpt"
         )
         lit = IkfLitModel.load_from_checkpoint(
             str(ckpt),

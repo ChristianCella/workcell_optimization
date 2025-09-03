@@ -110,14 +110,14 @@ def add_instance(base_scene_path: str, instance_path: str, output_path: str, mes
 
 def merge_robot_and_tool(
     base_dir="",
-    robot_filename="ur5e.xml",
+    robot_filename="iiwa14.xml",
     tool_filename="small_tool.xml",
-    output_robot_tool_filename="temp_ur5e_with_tool.xml",
+    output_robot_tool_filename="temp_kuka_with_tool.xml",
     target_body_name="ee_frame_visual_only"
 ):
-    robot_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e", robot_filename)
-    tool_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_tool", tool_filename)
-    output_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e", output_robot_tool_filename)
+    robot_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/kuka", robot_filename)
+    tool_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/screwing_tool", tool_filename)
+    output_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/kuka", output_robot_tool_filename)
 
     # Parse robot and tool XMLs
     robot_tree = etree.parse(robot_path)
@@ -137,8 +137,8 @@ def merge_robot_and_tool(
             # ✅ Copy mesh files from tool dir to robot's meshdir (ur5e/assets)
             if child.tag == "mesh" and "file" in child.attrib:
                 mesh_filename = child.attrib["file"]
-                src_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_tool", mesh_filename)
-                dst_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/assets", mesh_filename)
+                src_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/screwing_tool", mesh_filename)
+                dst_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/kuka/assets", mesh_filename)
                 if not os.path.exists(dst_path):
                     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
                     shutil.copyfile(src_path, dst_path)
@@ -162,12 +162,12 @@ def merge_robot_and_tool(
 def inject_robot_tool_into_scene(
     base_dir="",
     scene_filename="empty_environment.xml",
-    robot_tool_filename="temp_ur5e_with_tool.xml",
+    robot_tool_filename="temp_kuka_with_tool.xml",
     output_scene_filename="temp_scene_with_tool.xml"
 ):
-    scene_path = os.path.join(base_dir, "ur5e_utils_mujoco", scene_filename)
-    robot_tool_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e", robot_tool_filename)
-    output_scene_path = os.path.join(base_dir, "ur5e_utils_mujoco", output_scene_filename)
+    scene_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils", scene_filename)
+    robot_tool_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/kuka", robot_tool_filename)
+    output_scene_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils", output_scene_filename)
 
     scene_tree = etree.parse(scene_path)
     robot_tool_tree = etree.parse(robot_tool_path)
@@ -177,7 +177,7 @@ def inject_robot_tool_into_scene(
     for element in robot_tool_root:
         tag = element.tag.lower()
         if tag == "compiler":
-            meshdir_rel = os.path.join("ur5e", "assets").replace("\\", "/")
+            meshdir_rel = os.path.join("kuka", "assets").replace("\\", "/")
             existing = scene_root.find("compiler")
             if existing is None:
                 compiler = copy.deepcopy(element)
@@ -195,7 +195,7 @@ def inject_robot_tool_into_scene(
     scene_tree.write(output_scene_path, pretty_print=True)
     return output_scene_path
 
-def create_scene(tool_name, robot_and_tool_file_name, output_scene_filename, piece_name, base_dir):
+def create_scene(tool_name, robot_and_tool_file_name, output_scene_filename, piece_name1, piece_name2, base_dir):
 
     # Create the robot + tool model
     _ = merge_robot_and_tool(tool_filename=tool_name, base_dir=base_dir, output_robot_tool_filename=robot_and_tool_file_name)
@@ -206,17 +206,27 @@ def create_scene(tool_name, robot_and_tool_file_name, output_scene_filename, pie
                                                      base_dir=base_dir)
     
     # Add another instance (i.e. piece for screwing, cockpit)
-    obstacle_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces", piece_name)
+    obstacle_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/screwing_pieces", piece_name1)
     add_instance(
         merged_scene_path,
         obstacle_path,
         merged_scene_path,
-        mesh_source_dir=os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces"),
-        mesh_target_dir=os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/assets")
+        mesh_source_dir=os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/screwing_pieces"),
+        mesh_target_dir=os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/kuka/assets")
+    )
+
+    # Add another instance (i.e. piece for screwing, cockpit)
+    obstacle_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/simple_obstacles", piece_name2)
+    add_instance(
+        merged_scene_path,
+        obstacle_path,
+        merged_scene_path,
+        mesh_source_dir=os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/screwing_pieces"),
+        mesh_target_dir=os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/kuka/assets")
     )
 
     # Define the path to the final scene
-    model_path = os.path.join(base_dir, "ur5e_utils_mujoco", output_scene_filename)
+    model_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils", output_scene_filename)
 
     return model_path
 
