@@ -158,6 +158,26 @@ def merge_robot_and_tool(
     robot_tree.write(output_path, pretty_print=True)
     return output_path
 
+def add_contact_exclusions(root):
+    # Ensure the <contact> section exists
+    contact = root.find("contact")
+    if contact is None:
+        contact = etree.SubElement(root, "contact")
+
+    exclusions = [
+        ("base", "link1"),
+        ("base", "link2"),
+        ("base", "link3"),
+        ("link1", "link3"),
+        ("link3", "link5"),
+        ("link4", "link7"),
+        ("link5", "link7"),
+    ]
+
+    for body1, body2 in exclusions:
+        etree.SubElement(contact, "exclude", body1=body1, body2=body2)
+
+
 
 def inject_robot_tool_into_scene(
     base_dir="",
@@ -228,41 +248,37 @@ def create_scene(tool_name, robot_and_tool_file_name, output_scene_filename, pie
     # Define the path to the final scene
     model_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils", output_scene_filename)
 
+    tree = etree.parse(model_path)
+    root = tree.getroot()
+    add_contact_exclusions(root)
+    tree.write(model_path, pretty_print=True)
+
     return model_path
 
 
 if __name__ == "__main__":
 
-    tool_filename = "screwdriver.xml"
-    robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
+    tool_filename = "driller.xml"
+    robot_and_tool_file_name = "temp_kuka_with_tool.xml"
     output_scene_filename = "final_scene.xml"
-    obstacle_name = "table_grip.xml"
+    piece_name1 = "aluminium_plate.xml" 
+    piece_name2 = "Linear_guide.xml"
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
     # Create the method defined above
     model_path = create_scene(tool_name=tool_filename,
                               robot_and_tool_file_name=robot_and_tool_file_name,
                               output_scene_filename=output_scene_filename,
-                              piece_name=obstacle_name,
+                              piece_name1=piece_name1,
+                              piece_name2=piece_name2,
                               base_dir=base_dir)
 
     # Load and render
     model = mujoco.MjModel.from_xml_path(model_path)
     data = mujoco.MjData(model)
-    try:
-        with mujoco.viewer.launch_passive(model, data) as viewer:
-            print("Press ESC or Ctrl+C to exit the viewer.")
-            while viewer.is_running():
-                viewer.sync()
-    finally:
-        # Cleanup always runs
-        for path in [merged_robot_path, merged_scene_path, model_path]:
-            path = os.path.normpath(path)
-            if os.path.exists(path):
-                try:
-                    os.remove(path)
-                    print(f"Deleted temporary file: {path}")
-                except Exception as e:
-                    print(f"Could not delete {path}: {e}")
-            else:
-                print(f"File does not exist: {path}")
+
+    with mujoco.viewer.launch_passive(model, data) as viewer:
+        print("Press ESC or Ctrl+C to exit the viewer.")
+        while viewer.is_running():
+            viewer.sync()
+

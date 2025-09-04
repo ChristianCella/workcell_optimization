@@ -86,7 +86,7 @@ def main():
 
         # Target poses for the robot
         target_qpos_list = [
-            np.array([1.7382,  0.8907, -2.2000, -1.5925,  0.4470, -1.9824, -1.1051]),
+            np.array([-2.293, -1.059, -2.024,  1.887, -0.105, -0.399, -2.142]),
             #np.radians([15.99, -62.07, 121.58, -159.82, -99, -90]),
             #np.radians([-28.83, -84.36, 102.8, 18.69, -98.83, -101.46]),
             #np.radians([-29.77, -160.55, 110.57, -186.16, -98.81, -101.15]),
@@ -100,8 +100,8 @@ def main():
         screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
 
         # Forces defined in the world frame and applied at the tool center
-        external_force_world = np.array([0, 0, -50])
-        external_torque_world = np.array([0, 0, 0])
+        external_force_world = np.array([0, 0, -100])
+        external_torque_world = np.array([0, 0, -5])
         local_wrench = np.hstack([external_force_world, external_torque_world])
 
         with mujoco.viewer.launch_passive(model, data) as viewer:

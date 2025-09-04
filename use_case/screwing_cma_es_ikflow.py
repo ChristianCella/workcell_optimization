@@ -20,9 +20,9 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
 # Append the path to 'scene_manager'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
-from parameters import ScrewingCMAES, Ur5eRobot
+from parameters import ScrewingCMAES, KukaIiwa14
 parameters = ScrewingCMAES()
-robot_parameters = Ur5eRobot()
+robot_parameters = KukaIiwa14()
 from create_scene import create_scene
 
 # Append the path to 'utils'
@@ -33,11 +33,6 @@ from transformations import rotm_to_quaternion, euler_to_quaternion, get_world_w
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
-# Append the path to 'Motion_planning'
-planning_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../tests/Motion_planning'))
-sys.path.append(planning_dir)
-from rrt_connect import RRTConnectPlanner, MuJoCoCollisionChecker, clamp_to_limits, prune_near_duplicates, resample_path_by_count, workspace_length_simple
-
 # Load a global solver for IKFlow
 global_fast_ik_solver = FastIKFlowSolver()
 
@@ -45,57 +40,37 @@ global_fast_ik_solver = FastIKFlowSolver()
 def make_simulator(local_wrenches):
 
     # Path setup 
-    tool_filename = "screwdriver.xml"
-    robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
+    tool_filename = "driller.xml"
+    robot_and_tool_file_name = "temp_kuka_with_tool.xml"
     output_scene_filename = "final_scene.xml"
-    piece_name = "table_grip.xml" 
+    piece_name1 = "aluminium_plate.xml" 
+    piece_name2 = "Linear_guide.xml"
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
     # Create the scene
+
     model_path = create_scene(tool_name=tool_filename, robot_and_tool_file_name=robot_and_tool_file_name,
-                              output_scene_filename=output_scene_filename, piece_name=piece_name, base_dir=base_dir)
+                              output_scene_filename=output_scene_filename, piece_name1=piece_name1, piece_name2=piece_name2, base_dir=base_dir)
+
 
     # Load the newly created model
     model = mujoco.MjModel.from_xml_path(model_path)
     data  = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
 
-    #! Planner instance
+    # Define the parameters for the secondary metric of the followers
     plan_joint_ids = np.arange(robot_parameters.nu, dtype=int)
     jnt_range = model.jnt_range[plan_joint_ids].copy()
     lb = jnt_range[:, 0] # Lower bounds
     ub = jnt_range[:, 1] # Upper bounds
     w_diff = np.ones_like(lb)
-
-    if parameters.verbose:
-        print(f"{fonts.cyan}The lower limits are {lb}{fonts.reset}")
-        print(f"{fonts.yellow}The upper limits are {ub}{fonts.reset}")
-        print(f"{fonts.green}The weights for the joints are {w_diff}{fonts.reset}")
-
     m  = 0.5 * (lb + ub) # Midpoints
     s  = 0.5 * (ub - lb) # Half-ranges
-    base_qpos = data.qpos.copy()
-    weights = np.ones(robot_parameters.nu, dtype=float) # Weights to prefer certain joints during motion planning
-    revolute_mask = np.array([model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE for j in plan_joint_ids], dtype=bool)
-
-    # Create the collision checker and planner
-    cc = MuJoCoCollisionChecker(model, base_qpos=base_qpos, joint_ids=plan_joint_ids)
-    planner = RRTConnectPlanner(
-        collision_checker=cc,
-        joint_limits=jnt_range,
-        step_size=0.15,                 
-        per_joint_check_step=0.2,       
-        goal_tolerance=0.03,            
-        goal_bias=0.15,
-        max_iters=500,
-        weights=weights,
-        revolute_mask=revolute_mask
-    )
 
     # Get body/site IDs
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
-    piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "table_grip")
+    piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "aluminium_plate")
     ref_body_ids = []
     for i in range(model.nbody):
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)
@@ -110,31 +85,31 @@ def make_simulator(local_wrenches):
         mujoco.mj_resetData(model, data) #! Reset the simulation data => NEVER forget
 
         # Set the new robot base (matrix A^w_b)
-        _, _, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0.1, np.degrees(float(params[2])), 0, 0)
+        _, _, A_w_b = get_homogeneous_matrix(0.0, float(params[0]), 0.15, 0, 0, 90)
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
         # Set the piece in the environment (matrix A^w_p)
-        _, _, A_w_p = get_homogeneous_matrix(float(params[6]), float(params[7]), 0, 0, 0, 0)
+        _, _, A_w_p = get_homogeneous_matrix(0.6, 0.0, 0.8, 0, np.degrees(float(params[5])), 180)
         set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
         # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-        _, _, A_ee_t1 = get_homogeneous_matrix(float(params[3]), float(params[4]), 0.03, np.degrees(float(params[5])), 0, 0)
+        _, _, A_ee_t1 = get_homogeneous_matrix(float(params[1]), float(params[2]), 0.05, np.degrees(float(params[3])), np.degrees(float(params[4])), 0)
         set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
         # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
-        _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
+        _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.26, 0, 0, 0)
 
         # Update the position of the tool tip (Just for visualization purposes)
         A_ee_t = A_ee_t1 @ A_t1_t
         set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
-        # End-effector with respect to wrist3 (NOTE: this is always fixed)
-        _, _, A_wl3_ee = get_homogeneous_matrix(0, 0.1, 0, -90, 0, 0)
+        # End-effector with respect to wrist3 (NOTE: this is always fixed.)
+        # NOTE: for the kuka, ikflow already provides the solution at ee, not wrist
+        _, _, A_wl3_ee = get_homogeneous_matrix(0, 0.0, 0, 0, 0, 0)
 
-        # Set the new robot configuration
-        q0 = np.array([float(params[8]), float(params[9]), float(params[10]),
-                       float(params[11]), float(params[12]), float(params[13])])
-        data.qpos[:6] = q0.tolist()
+        # NOTE: Now q0 is fixed 
+        q0 = np.array([2.014, 0.201, -0.098, 1.735, -0.018, -1.607, 0.346])
+        data.qpos[:robot_parameters.nu] = q0.tolist()
         mujoco.mj_forward(model, data)
         if parameters.activate_gui: viewer.sync()
 
@@ -193,7 +168,7 @@ def make_simulator(local_wrenches):
             counter_pieces_ik_aval = 0
             counter_pieces_without_cols = 0
 
-            for j in range(len(ref_body_ids)): # ! For each piece to be screwed
+            for j in range(len(ref_body_ids)): # ! For each piece to be screwed (fro drilling: only one)
                 if parameters.verbose: print(f"Solving IK for target frame {j}")
 
                 #Get the pose of the target 
@@ -285,7 +260,7 @@ def make_simulator(local_wrenches):
 
                 # ! Compute the torques for the best configuration
                 J = compute_jacobian(model, data, tool_site_id)
-                tau_g = data.qfrc_bias[:6]
+                tau_g = data.qfrc_bias[:robot_parameters.nu] # Gravity torques
                 R_tool_to_world = data.site_xmat[tool_site_id].reshape(3, 3) # Rotation tool => world
                 R_world_to_tool = R_tool_to_world.T # Rotation world => tool
                 world_wrench = get_world_wrench(R_world_to_tool, local_wrenches[j]) #! Wrench in world frame
@@ -323,47 +298,14 @@ def make_simulator(local_wrenches):
             # ! All the pieces to be screwed have been processed 
             # If all pieces have valid IK solutions
             if (counter_pieces_without_cols == len(ref_body_ids)) and (counter_pieces_ik_aval == len(ref_body_ids)):
-                total_length = 0
-                q_list_proxy = [q0.copy()] + best_configs.copy()
-                for p in range(len(ref_body_ids) + 1): # 0, 1, 2, 3, 4
-                    h = p + 1
-                    if p == len(ref_body_ids): 
-                        h = 0
-
-                    # Define start and goal
-                    q_start = clamp_to_limits(q_list_proxy[p].copy(), jnt_range)
-                    q_goal  = clamp_to_limits(q_list_proxy[h].copy(), jnt_range)
-
-                    # Set the start joint config
-                    data.qpos[:6] = q_start.tolist()
-                    mujoco.mj_forward(model, data)
-
-                    # Plan the path
-                    path, _ = planner.plan(q_start, q_goal, time_budget_s=5.0)
-
-                    if path is not None: #! A path has been found => compute its length
-
-                        # Your existing post-processing
-                        path_pruned = prune_near_duplicates(path, min_step=1e-3,
-                                                            weights=weights, revolute_mask=revolute_mask)
-                        path_uniform = resample_path_by_count(path_pruned, target_points=60,
-                                                            weights=weights, revolute_mask=revolute_mask)        
-
-                        # Compute the path length
-                        path_length = workspace_length_simple(cc, path_uniform, site_id=tool_site_id)
-
-                    else: #! No path found: probably it did not exist => put a reasonably high length
-                        path_length = 5.0
-
-                    # Update the total length
-                    total_length += path_length
+                total_length = (np.abs(params[0] - parameters.starting_position))
 
             # Impose to infinite the secondary objective
             else:
                 total_length = 1e2
 
             # ! The complete fitness is the sum of f_tau and f_path
-            f_path = total_length / (2 * np.pi * robot_parameters.robot_reach)
+            f_path = total_length / parameters.line_length
             f_tau = float(np.mean(norms)) 
             if parameters.verbose:
                 print(f"The primary objective is {f_tau:.4f}")
@@ -381,17 +323,14 @@ if __name__ == "__main__":
 
     # Reasonable values of the wrench
     local_wrenches = [
-        (np.array([0, 0, -30, 0, 0, -20])),
-        (np.array([0, 0, -30, 0, 0, -20])),
-        (np.array([0, 0, -30, 0, 0, -20])),
-        (np.array([0, 0, -30, 0, 0, -20])),
+        (np.array([0, 0, -150, 0, 0, -10])),
     ]
 
     run_sim, model, data, base_body_id, screwdriver_body_id, piece_body_id, tool_site_id = make_simulator(local_wrenches)
 
     # Parameters of the genetic algorithm
-    lb = np.array([0.0, -0.5, -np.pi/4, 0.0, 0.0, -np.pi/4, -0.1, -0.5, 135*np.pi/180, -115*np.pi/180, 60*np.pi/180, -105*np.pi/180, -105*np.pi/180, 30*np.pi/180])
-    ub = np.array([0.5,  0.5,  np.pi/4, 0.1, 0.1,  np.pi/4, 0.2, 0.5,  225*np.pi/180,  -85*np.pi/180,  100*np.pi/180,  -75*np.pi/180,  -75*np.pi/180, 60*np.pi/180])
+    lb = np.array([-0.75, 0.0, 0.0, 0.0, 0.0, -70 * np.pi/180]) 
+    ub = np.array([0.75, 0.1, 0.1, np.pi/4, np.pi/4, -90 * np.pi/180])
 
     center = (ub + lb) / 2.0
     scale  = (ub - lb) / 2.0
@@ -402,7 +341,7 @@ if __name__ == "__main__":
     x0_scaled = encode(np.array(parameters.x0))
     popsize = parameters.popsize
     sigma0_scaled = parameters.sigma0
-    opts = {"popsize": popsize, "bounds": [[-1]*14, [1]*14], "verb_disp": 0}
+    opts = {"popsize": popsize, "bounds": [[-1]*6, [1]*6], "verb_disp": 0}
     n_iter = parameters.n_iter
 
     es = cma.CMAEvolutionStrategy(x0_scaled, sigma0_scaled, opts)
@@ -495,7 +434,7 @@ if __name__ == "__main__":
             # Update robot base to best solution
             i_best = int(np.argmin(fitnesses))
             best_individual_idx.append(i_best)
-            x_b, y_b, theta_x_b, x_t, y_t, theta_x_t, x_p, y_p, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b = sols[i_best][:14]
+            y_b, x_t, y_t, theta_x_t, theta_y_t, theta_x_p = sols[i_best][:6]
             final_best_configs = best_configs[i_best] # Best joint configs for the current generation
             final_best_secondary = best_secondary_fit[i_best]
             final_best_manip = best_manip[i_best]
@@ -503,21 +442,21 @@ if __name__ == "__main__":
             if parameters.verbose: print(f"The best configurations for generation {gen} is: {final_best_configs}")
 
             # Set the robot base to the best solution
-            set_body_pose(model, data, base_body_id, [x_b, y_b, 0.1], euler_to_quaternion(theta_x_b, 0, 0)) 
+            set_body_pose(model, data, base_body_id, [0.0, y_b, 0.15], euler_to_quaternion(0, 0, np.pi/2)) 
             mujoco.mj_forward(model, data)
 
             # Set the piece to the best position
-            set_body_pose(model, data, piece_body_id, [x_p, y_p, 0.0], euler_to_quaternion(0, 0, 0)) 
+            set_body_pose(model, data, piece_body_id, [0.6, 0.0, 0.8], euler_to_quaternion(0, theta_x_p, np.pi)) 
             mujoco.mj_forward(model, data)
 
             # Set the tool to the best position
-            set_body_pose(model, data, screwdriver_body_id, [x_t, y_t, 0.03], euler_to_quaternion(theta_x_t, 0, 0)) 
+            set_body_pose(model, data, screwdriver_body_id, [x_t, y_t, 0.05], euler_to_quaternion(theta_x_t, theta_y_t, 0)) 
             mujoco.mj_forward(model, data)
             if viewer: viewer.sync()
 
             # For each screw/piece, apply the best configuration found
             for idx in range(len(local_wrenches)):
-                data.qpos[:6] = final_best_configs[idx][:6].tolist()
+                data.qpos[:robot_parameters.nu] = final_best_configs[idx][:robot_parameters.nu].tolist()
                 mujoco.mj_forward(model, data)
                 if viewer: viewer.sync()
 
@@ -527,7 +466,7 @@ if __name__ == "__main__":
                 best_fitness_trend.append(starting_fitness)
                 best_fitnesses_tau_trend.append(fitnesses_tau[i_best])
                 best_fitnesses_path_trend.append(fitnesses_path[i_best])
-                best_solutions.append((x_b, y_b, theta_x_b, x_t, y_t, theta_x_t, x_p, y_p, q1_b, q2_b, q3_b, q4_b, q5_b, q6_b))
+                best_solutions.append((y_b, x_t, y_t, theta_x_t, theta_y_t, theta_x_p))
                 best_configs_trend.append(final_best_configs)
                 best_manip_trend.append(final_best_manip)
                 best_gravity_trend.append(best_gravity_torques_gen[i_best])
@@ -674,7 +613,7 @@ if __name__ == "__main__":
 
         # Create column names like tau_g_piece0_1, ..., tau_g_piece3_6
         n_pieces = len(best_gravity_trend[0])  # Should match best_external_trend[0]
-        n_joints = 6
+        n_joints = robot_parameters.nu  # Number of joints, e.g., 6
 
         # ---- Gravity Torques ----
         flat_gravity = []
@@ -704,7 +643,7 @@ if __name__ == "__main__":
         df_external.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", "best_external_torques.csv"), index=False)
 
         # Trend of the best layout vector xi
-        df_x = pd.DataFrame(best_solutions, columns=["x_b", "y_b", "theta_x_b", "x_t", "y_t", "theta_x_t", "x_p", "y_p", "q01", "q02", "q03", "q04", "q05", "q06"])
+        df_x = pd.DataFrame(best_solutions, columns=["y_b", "x_t", "y_t", "theta_x_t", "theta_y_t", "theta_x_p"])
         df_x.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", "best_solutions.csv"), index=False)
 
         # Status of each individual in each generation
@@ -738,24 +677,16 @@ if __name__ == "__main__":
             mujoco.mj_resetData(model, data)
 
             # Set robot base
-            set_body_pose(model, data, base_body_id, [best_solutions[-1][0], best_solutions[-1][1], 0.1], euler_to_quaternion(best_solutions[-1][2], 0, 0)) 
+            set_body_pose(model, data, base_body_id, [0.0, float(best_solutions[-1][0]), 0.15], euler_to_quaternion(0, 0, np.pi/2)) 
             
             # Set piece
-            set_body_pose(model, data, piece_body_id, [best_solutions[-1][6], best_solutions[-1][7], 0.0], euler_to_quaternion(0, 0, 0))
+            set_body_pose(model, data, piece_body_id, [0.6, 0.0, 0.8], euler_to_quaternion(0, float(best_solutions[-1][5]), np.pi))
 
             # Set tool
-            set_body_pose(model, data, screwdriver_body_id, [best_solutions[-1][3], best_solutions[-1][4], 0.03], euler_to_quaternion(best_solutions[-1][5], 0, 0))
-
-            # NOTE: put tool frame in the correct position (otherwise the fitness you compute is wrong!!)
-            _, _, A_ee_t1 = get_homogeneous_matrix(best_solutions[-1][3], float(best_solutions[-1][4]), 0.03, np.degrees(float(best_solutions[-1][5])), 0, 0)
-            _, _, A_t1_t  = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
-            A_ee_t = A_ee_t1 @ A_t1_t
-            tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
-            set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
+            set_body_pose(model, data, screwdriver_body_id, [float(best_solutions[-1][1]), float(best_solutions[-1][2]), 0.05], euler_to_quaternion(float(best_solutions[-1][3]), float(best_solutions[-1][4]), 0))
 
             # Set robot joints
-            q0_final = np.array([best_solutions[-1][8], best_solutions[-1][9], best_solutions[-1][10],
-                       best_solutions[-1][11], best_solutions[-1][12], best_solutions[-1][13]])
+            q0_final = np.array([2.014, 0.201, -0.098, 1.735, -0.018, -1.607, 0.346])
             data.qpos[:robot_parameters.nu] = q0_final.tolist()
             mujoco.mj_forward(model, data)
 

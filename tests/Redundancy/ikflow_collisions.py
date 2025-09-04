@@ -36,6 +36,9 @@ def main():
     model_path = create_scene(tool_name=tool_filename, robot_and_tool_file_name=robot_and_tool_file_name,
                               output_scene_filename=output_scene_filename, piece_name1=piece_name1, piece_name2=piece_name2, base_dir=base_dir)
 
+    #base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
+    #model_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/kuka/iiwa14.xml")
+
     # Load MuJoCo model
     model = mujoco.MjModel.from_xml_path(str(model_path))
     data  = mujoco.MjData(model)
@@ -50,7 +53,7 @@ def main():
     wrist_3_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ee_frame_visual_only") # wrist_3
 
     # Set robot base (matrix A^w_b)
-    t_w_b = np.array([0.0, -0.1, 0.15])
+    t_w_b = np.array([0.0, 0.0, 0.15])
     #t_w_b = np.array([0.0, 0.0, 0.0])
     R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(90)], degrees=False).as_matrix()
     #R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
@@ -97,15 +100,16 @@ def main():
     counter_start_inference = time.time()
 
     #Get the pose of the target 
-    posit = data.xpos[ref_body_ids[0]]
-    rotm = data.xmat[ref_body_ids[0]].reshape(3, 3)
+    posit = data.xpos[ref_body_ids[1]]
+    rotm = data.xmat[ref_body_ids[1]].reshape(3, 3)
     theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=True)
 
-    print(f"The pose of the target is: pos={np.round(posit,3)}, angles={np.round([theta_x_0, theta_y_0, theta_z_0],3)}")
+    #print(f"The pose of the target is: pos={np.round(posit,3)}, angles={np.round([theta_x_0, theta_y_0, theta_z_0],3)}")
 
     # Loop through the discrete configurations
     sols_ok, fk_ok = [], []
     for i in range(params.N_disc): # 0, 1, 2, ... N_disc-1
+
         _, _, A_w_p_rotated = get_homogeneous_matrix(posit[0], posit[1], posit[2], theta_x_0, theta_y_0, theta_z_0 + i * 360 / params.N_disc)
         A_b_ee = np.linalg.inv(A_w_b) @ A_w_p_rotated @ np.linalg.inv(A_ee_t)
 
@@ -139,7 +143,6 @@ def main():
         input("Press Enter to start visualizing IK-flow solutions…")      
 
         # loop over each valid IK solution
-        cost = 1e12
         best_cost = 1e12
         best_q = np.zeros(7)
         start_inference = time.time()
@@ -162,9 +165,11 @@ def main():
                 #print(f"Number of collisions detected: {n_cols}; inverse manipulability: {sigma_manip:.3f}")
 
                 # Save the configuration with best inverse manipulability
-                if (cost < best_cost) and (n_cols == 0):
+                if (sigma_manip < best_cost) and (n_cols == 0):
+                    print(f"feasible configuration!")
                     best_cost = sigma_manip
                     best_q = q
+                    print(f"{fonts.green}The current best config is: {best_q}{fonts.reset}")
 
             print(f"Evaluating collisions and Jacobian on {len(sols_np)} samples lasted {time.time() - start_inference:.2f} seconds")
             print(f"The best configuration is: {np.round(best_q, 3)} with cost {best_cost:.3f}")
@@ -174,8 +179,8 @@ def main():
             mujoco.mj_forward(model, data)
             viewer.sync()
 
-
             input("Press Enter to close the viewer…")
+
         else:
 
             # hard-coded joint configuration for testing

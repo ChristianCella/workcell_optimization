@@ -10,7 +10,7 @@ def compute_jacobian(model, data, tool_site_id):
     Jp = np.zeros((3, model.nv))
     Jr = np.zeros((3, model.nv))
     mujoco.mj_jacSite(model, data, Jp, Jr, tool_site_id)
-    Jac = np.vstack([Jp, Jr])[:, :6]
+    Jac = np.vstack([Jp, Jr])[:, :model.nv]
     return Jac
 
 def get_collisions(model, data, verbose):
