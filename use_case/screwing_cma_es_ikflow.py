@@ -89,11 +89,11 @@ def make_simulator(local_wrenches):
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
         # Set the piece in the environment (matrix A^w_p)
-        _, _, A_w_p = get_homogeneous_matrix(0.6, 0.0, 0.8, 0, np.degrees(float(params[5])), 180)
+        _, _, A_w_p = get_homogeneous_matrix(0.6, 0.0, 0.8, 0, np.degrees(float(params[2])), 180)
         set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
         # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-        _, _, A_ee_t1 = get_homogeneous_matrix(float(params[1]), float(params[2]), 0.05, np.degrees(float(params[3])), np.degrees(float(params[4])), 0)
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.15, 0.0, float(params[1]), 0.0, 0.0, 0)
         set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
         # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
@@ -154,7 +154,7 @@ def make_simulator(local_wrenches):
 
             # The fitness will be infinite in this case
             fit_tau = float(np.mean(norms))
-            fit_path = 1e2 / (2 * np.pi * robot_parameters.robot_reach)
+            fit_path = 1e2 / parameters.line_length
             individual_status.append(1) # 1 = layout problem 
             individual_status.append(1000) # Placeholder for impossibility to compute IK
             individual_status.append(1000) # Placeholder for impossibility to verify if IK has collisions
@@ -329,8 +329,8 @@ if __name__ == "__main__":
     run_sim, model, data, base_body_id, screwdriver_body_id, piece_body_id, tool_site_id = make_simulator(local_wrenches)
 
     # Parameters of the genetic algorithm
-    lb = np.array([-0.75, 0.0, 0.0, 0.0, 0.0, -70 * np.pi/180]) 
-    ub = np.array([0.75, 0.1, 0.1, np.pi/4, np.pi/4, -90 * np.pi/180])
+    lb = np.array([-0.75, 0.0, -70 * np.pi/180]) 
+    ub = np.array([0.75, 0.15, -90 * np.pi/180])
 
     center = (ub + lb) / 2.0
     scale  = (ub - lb) / 2.0
@@ -341,7 +341,7 @@ if __name__ == "__main__":
     x0_scaled = encode(np.array(parameters.x0))
     popsize = parameters.popsize
     sigma0_scaled = parameters.sigma0
-    opts = {"popsize": popsize, "bounds": [[-1]*6, [1]*6], "verb_disp": 0}
+    opts = {"popsize": popsize, "bounds": [[-1]*3, [1]*3], "verb_disp": 0}
     n_iter = parameters.n_iter
 
     es = cma.CMAEvolutionStrategy(x0_scaled, sigma0_scaled, opts)
@@ -434,7 +434,7 @@ if __name__ == "__main__":
             # Update robot base to best solution
             i_best = int(np.argmin(fitnesses))
             best_individual_idx.append(i_best)
-            y_b, x_t, y_t, theta_x_t, theta_y_t, theta_x_p = sols[i_best][:6]
+            y_b, z_t, theta_y_p = sols[i_best][:6]
             final_best_configs = best_configs[i_best] # Best joint configs for the current generation
             final_best_secondary = best_secondary_fit[i_best]
             final_best_manip = best_manip[i_best]
@@ -446,11 +446,11 @@ if __name__ == "__main__":
             mujoco.mj_forward(model, data)
 
             # Set the piece to the best position
-            set_body_pose(model, data, piece_body_id, [0.6, 0.0, 0.8], euler_to_quaternion(0, theta_x_p, np.pi)) 
+            set_body_pose(model, data, piece_body_id, [0.6, 0.0, 0.8], euler_to_quaternion(0, theta_y_p, np.pi)) 
             mujoco.mj_forward(model, data)
 
             # Set the tool to the best position
-            set_body_pose(model, data, screwdriver_body_id, [x_t, y_t, 0.05], euler_to_quaternion(theta_x_t, theta_y_t, 0)) 
+            set_body_pose(model, data, screwdriver_body_id, [0.15, 0.0, z_t], euler_to_quaternion(0, 0, 0)) 
             mujoco.mj_forward(model, data)
             if viewer: viewer.sync()
 
@@ -466,7 +466,7 @@ if __name__ == "__main__":
                 best_fitness_trend.append(starting_fitness)
                 best_fitnesses_tau_trend.append(fitnesses_tau[i_best])
                 best_fitnesses_path_trend.append(fitnesses_path[i_best])
-                best_solutions.append((y_b, x_t, y_t, theta_x_t, theta_y_t, theta_x_p))
+                best_solutions.append((y_b, z_t, theta_y_p))
                 best_configs_trend.append(final_best_configs)
                 best_manip_trend.append(final_best_manip)
                 best_gravity_trend.append(best_gravity_torques_gen[i_best])
@@ -643,7 +643,7 @@ if __name__ == "__main__":
         df_external.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", "best_external_torques.csv"), index=False)
 
         # Trend of the best layout vector xi
-        df_x = pd.DataFrame(best_solutions, columns=["y_b", "x_t", "y_t", "theta_x_t", "theta_y_t", "theta_x_p"])
+        df_x = pd.DataFrame(best_solutions, columns=["y_b", "z_t", "theta_x_p"])
         df_x.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", "best_solutions.csv"), index=False)
 
         # Status of each individual in each generation
@@ -680,10 +680,10 @@ if __name__ == "__main__":
             set_body_pose(model, data, base_body_id, [0.0, float(best_solutions[-1][0]), 0.15], euler_to_quaternion(0, 0, np.pi/2)) 
             
             # Set piece
-            set_body_pose(model, data, piece_body_id, [0.6, 0.0, 0.8], euler_to_quaternion(0, float(best_solutions[-1][5]), np.pi))
+            set_body_pose(model, data, piece_body_id, [0.6, 0.0, 0.8], euler_to_quaternion(0, float(best_solutions[-1][2]), np.pi))
 
             # Set tool
-            set_body_pose(model, data, screwdriver_body_id, [float(best_solutions[-1][1]), float(best_solutions[-1][2]), 0.05], euler_to_quaternion(float(best_solutions[-1][3]), float(best_solutions[-1][4]), 0))
+            set_body_pose(model, data, screwdriver_body_id, [0.15, 0.0, float(best_solutions[-1][1])], euler_to_quaternion(0, 0, 0))
 
             # Set robot joints
             q0_final = np.array([2.014, 0.201, -0.098, 1.735, -0.018, -1.607, 0.346])
