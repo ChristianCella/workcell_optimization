@@ -64,7 +64,7 @@ class ScrewingCMAES:
                            np.array([0.0, 0.05, np.radians(-90.0)]))  # initial mean mu
     sigma0 : float = 2  # initial std sigma
     popsize: int = 3  # number of individuals
-    n_iter: int = 10  # number of iterations
+    n_iter: int = 4  # number of iterations
 
 @dataclass
 class ScrewingRandom:

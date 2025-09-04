@@ -102,7 +102,7 @@ def make_simulator(local_wrenches):
         set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
         # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-        _, _, A_ee_t1 = get_homogeneous_matrix(0.15, 0.0, float(params[1]), 0.0, 0.0, 0.0)
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.1, 0.0, float(params[1]), 0.0, 0.0, 0.0)
         set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
         # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
@@ -550,7 +550,7 @@ if __name__ == "__main__":
             mujoco.mj_forward(model, data)
 
             # Set the tool to the best position
-            set_body_pose(model, data, screwdriver_body_id, [0.15, 0.0, z_t], euler_to_quaternion(0, 0, 0)) 
+            set_body_pose(model, data, screwdriver_body_id, [0.1, 0.0, z_t], euler_to_quaternion(0, 0, 0)) 
             mujoco.mj_forward(model, data)
             if viewer: viewer.sync()
 
@@ -830,7 +830,14 @@ if __name__ == "__main__":
             set_body_pose(model, data, piece_body_id, [0.6, 0.0, 0.8], euler_to_quaternion(0, float(best_solutions[-1][2]), np.pi))
 
             # Set tool
-            set_body_pose(model, data, screwdriver_body_id, [0.15, 0.0, float(best_solutions[-1][1])], euler_to_quaternion(0, 0, 0))
+            set_body_pose(model, data, screwdriver_body_id, [0.1, 0.0, float(best_solutions[-1][1])], euler_to_quaternion(0, 0, 0))
+
+            # NOTE: put tool frame in the correct position (otherwise the fitness you compute is wrong!!)
+            _, _, A_ee_t1 = get_homogeneous_matrix(0.1, 0.0, float(best_solutions[-1][1]), 0, 0, 0)
+            _, _, A_t1_t  = get_homogeneous_matrix(0, 0, 0.26, 0, 0, 0)
+            A_ee_t = A_ee_t1 @ A_t1_t
+            tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
+            set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
             # Set robot joints
             q0_final = np.array([2.014, 0.201, -0.098, 1.735, -0.018, -1.607, 0.346])
