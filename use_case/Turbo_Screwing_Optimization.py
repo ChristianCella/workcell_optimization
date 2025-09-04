@@ -461,7 +461,7 @@ if __name__ == "__main__":
     save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
     #! This will become a query to a database
-    np.array([0, 0, -100, 0, 0, -4]),
+   
     
     local_wrenches = [
         (np.array([0, 0, -30, 0, 0, -20])),
@@ -480,9 +480,10 @@ if __name__ == "__main__":
     xb,yb,rx,xee,yee,rxe,xp,yp,q01,q02,q03,q04,q05,q06
     '''
 
-    lb_real = np.array([0.0, -0.5, -np.pi/4, 0.0, 0.0, -np.pi/4, -0.1, -0.5, 135*np.pi/180, -115*np.pi/180, 60*np.pi/180, -105*np.pi/180, -105*np.pi/180, 30*np.pi/180])
-    ub_real = np.array([0.5,  0.5,  np.pi/4, 0.1, 0.1,  np.pi/4, 0.2, 0.5,  225*np.pi/180,  -85*np.pi/180,  100*np.pi/180,  -75*np.pi/180,  -75*np.pi/180, 60*np.pi/180])
+    lb = np.array([0.0, -0.5, -np.pi/4, 0.0, 0.0, -np.pi/4, -0.1, -0.5, 135*np.pi/180, -115*np.pi/180, 60*np.pi/180, -105*np.pi/180, -105*np.pi/180, 30*np.pi/180])
+    ub = np.array([0.5,  0.5,  np.pi/4, 0.1, 0.1,  np.pi/4, 0.2, 0.5,  225*np.pi/180,  -85*np.pi/180,  100*np.pi/180,  -75*np.pi/180,  -75*np.pi/180, 60*np.pi/180])
     #---------------------------------operazione scalatura-----------
+    '''
     center = (ub_real + lb_real) / 2.0
     scale  = (ub_real - lb_real) / 2.0
 
@@ -491,16 +492,17 @@ if __name__ == "__main__":
     ub=np.array([1,1,1,1,1,1,1,1,1,1,1,1,1,1])
     lb=np.array([-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1])
     '''
+    '''
      ----------------------------Parameters for TuRBO-m--------------------------------
     '''
     
     batch_size =  40 #40 #10
-    max_evals =4000   #4140 #4420  # 140 (n_init*trust_regions)+40(batch_size/popsize)*100(n_val)
+    max_evals =8000   #4140 #4420  # 140 (n_init*trust_regions)+40(batch_size/popsize)*100(n_val)
     n_init = 28 #28 #80 # max(2 * lb.size, batch_size) sarebbe opportuno 2*d 48
     use_ard = True
-    n_training_steps = 50  # GP training iters per update
+    n_training_steps = 100  # GP training iters per update
     verbose = True
-    n_trust_regions = 15 #5 #15  # Number of trust regions to maintain
+    n_trust_regions = 5 #5 #15  # Number of trust regions to maintain
     
 
     
@@ -576,8 +578,8 @@ if __name__ == "__main__":
         global complete_alpha_trend, complete_beta_trend, complete_gamma_trend
         global starting_fitness
         # Evaluate the simulator
-        x_np_1d=decode(x_np_1d_scaled)
-        f_tau, f_path, best_configs, best_followers, best_primary_followers, best_secondary_followers, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma = run_sim(x_np_1d)
+        
+        f_tau, f_path, best_configs, best_followers, best_primary_followers, best_secondary_followers, best_gravity_torques, best_external_torques, individual_status, best_alpha, best_beta, best_gamma = run_sim(x_np_1d_scaled)
 
         # Build artifacts for this evaluation
         art = {
@@ -605,7 +607,7 @@ if __name__ == "__main__":
         fit = f_tau * w_tau + f_path * w_path
 
         # Accumulate this point into the current batch
-        current_batch_points.append((x_np_1d, float(fit)))
+        current_batch_points.append((x_np_1d_scaled, float(fit)))
         batch_f_tau.append(float(f_tau))
         batch_f_path.append(float(f_path))
         batch_artifacts.append(art)
