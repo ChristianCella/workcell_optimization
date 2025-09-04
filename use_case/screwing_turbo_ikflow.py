@@ -74,8 +74,8 @@ def make_simulator(local_wrenches):
     ub = jnt_range[:, 1] # Upper bounds
     w_diff = np.ones_like(lb)
     m  = 0.5 * (lb + ub) # Midpoints
-    s  = 0.5 * (ub - lb) # Half-ranges
-
+    s  = 0.5 * (ub - lb) 
+    
     # Get body/site IDs
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
