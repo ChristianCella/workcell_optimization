@@ -568,7 +568,7 @@ if __name__ == "__main__":
      ----------------------------Parameters for TuRBO-m--------------------------------
     '''
     
-    batch_size =  40 #40 #10
+    batch_size =  50 #40 #10
     max_evals =4000   #4140 #4420  # 140 (n_init*trust_regions)+40(batch_size/popsize)*100(n_val)
     n_init = 28 #28 #80 # max(2 * lb.size, batch_size) sarebbe opportuno 2*d 48
     use_ard = True
