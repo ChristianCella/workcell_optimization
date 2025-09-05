@@ -44,7 +44,6 @@ def ik_tool_site(model, data, tool_site_id, target_pos, target_quat, max_iters=1
         jacr = np.zeros((3, model.nv))
         mujoco.mj_jacSite(model, data, jacp, jacr, tool_site_id)
         J = np.vstack([jacp, jacr])[:, :6]
-        # Damped least squares IK step
         dq = np.linalg.pinv(J, rcond=1e-4) @ err
         q += dq
         data.qpos[:6] = q

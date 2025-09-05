@@ -128,7 +128,7 @@ plt.tight_layout()
 plt.show()
 
 # --- Plot 2: Boxplot ---
-plt.figure(figsize=(8, 6))
+plt.figure(figsize=(8, 4))
 plt.boxplot([turbo_vals, cma_es_vals, random_vals], vert=True, patch_artist=True, labels=[r"\texttt{TuRBO}", r"\texttt{cma-es}", r"\texttt{random}"])
 plt.xticks(fontsize=16)
 plt.ylabel(r"$\bar{f}_{\tau}$", fontsize=18)

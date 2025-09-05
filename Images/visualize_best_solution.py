@@ -49,8 +49,8 @@ mujoco.mj_resetData(model, data)
 # Load CSVs (last/best row)
 # -----------------------------
 csv_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-xi_path = os.path.join(csv_dir, "results/data/screwing/cma_es_ikflow/best_solutions.csv")
-q_path  = os.path.join(csv_dir, "results/data/screwing/cma_es_ikflow/best_configs.csv")
+xi_path = os.path.join(csv_dir, "results/data/screwing/turbo_ikflow/best_solutions.csv")
+q_path  = os.path.join(csv_dir, "results/data/screwing/turbo_ikflow/best_configs.csv")
 
 df_xi = pd.read_csv(xi_path)
 df_q  = pd.read_csv(q_path)
