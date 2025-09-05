@@ -55,8 +55,8 @@ def main():
     # Set robot base (matrix A^w_b)
     t_w_b = np.array([0.0, 0.0, 0.15])
     #t_w_b = np.array([0.0, 0.0, 0.0])
-    R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(90)], degrees=False).as_matrix()
-    #R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+    #R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(90)], degrees=False).as_matrix()
+    R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
     A_w_b = np.eye(4)
     A_w_b[:3, 3] = t_w_b
     A_w_b[:3, :3] = R_w_b
@@ -82,7 +82,7 @@ def main():
     set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
     # Set the piece in the environment (matrix A^w_p)
-    _, _, A_w_p = get_homogeneous_matrix(0.6, 0, 0.8, 0, -90, 180)
+    _, _, A_w_p = get_homogeneous_matrix(0.8, 0, 0.8, 0, -90, 180)
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Get the frame of the hole
@@ -100,8 +100,8 @@ def main():
     counter_start_inference = time.time()
 
     #Get the pose of the target 
-    posit = data.xpos[ref_body_ids[1]]
-    rotm = data.xmat[ref_body_ids[1]].reshape(3, 3)
+    posit = data.xpos[ref_body_ids[0]]
+    rotm = data.xmat[ref_body_ids[0]].reshape(3, 3)
     theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=True)
 
     #print(f"The pose of the target is: pos={np.round(posit,3)}, angles={np.round([theta_x_0, theta_y_0, theta_z_0],3)}")
