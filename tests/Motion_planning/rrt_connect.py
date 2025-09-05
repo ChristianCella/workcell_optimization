@@ -501,8 +501,48 @@ def workspace_length_simple(cc: MuJoCoCollisionChecker, path, site_id: int):
 
     return total
 
+def resample_to_count(path, k, weights=None, revolute_mask=None):
+    # reuse your own resampler to guarantee even spacing along the path
+    return resample_path_by_count(path, target_points=k,
+                                  weights=weights, revolute_mask=revolute_mask)
 
-# ========================== /NEW optimization section ========================
+def ee_pos_world(cc: MuJoCoCollisionChecker, q, site_id: int):
+    cc.set_qpos_for_planned_joints(q)
+    mujoco.mj_forward(cc.model, cc.data)
+    return np.array(cc.data.site_xpos[site_id], dtype=float)
+
+def add_point_markers_to_viewer(viewer, positions, radius=0.008, rgba=(1,0,0,1), clear=False):
+    scn = viewer.user_scn
+    if clear:
+        scn.ngeom = 0  # only clear on demand
+
+    size = np.array([radius, 0.0, 0.0], dtype=float)  # sphere uses size[0]
+    mat  = np.eye(3, dtype=float).ravel()
+
+    for p in positions:
+        if scn.ngeom >= scn.maxgeom:
+            break
+        g = scn.geoms[scn.ngeom]
+        mujoco.mjv_initGeom(g, mujoco.mjtGeom.mjGEOM_SPHERE, size, np.asarray(p, float), mat, np.array(rgba, float))
+        g.label = ""   # string, not int
+        scn.ngeom += 1
+
+def clear_all_point_markers(viewer):
+    viewer.user_scn.ngeom = 0
+    viewer.sync()
+
+
+import colorsys
+
+def color_by_index(i, total=None, alpha=1.0):
+    """Evenly spaced hues; returns (r,g,b,a) in [0,1]."""
+    if total is None:
+        total = 12
+    h = (i % total) / float(total)
+    r, g, b = colorsys.hsv_to_rgb(h, 0.8, 1.0)
+    return (r, g, b, alpha)
+
+
 
 #! Test code
 if __name__ == "__main__":
@@ -610,6 +650,9 @@ if __name__ == "__main__":
         revolute_mask=revolute_mask
     )
 
+    all_markers = []
+    all_paths = []
+
     # Tests a for loop
     for i in range(n_pieces + 1): # 0, 1, 2, 3, 4
         k = i + 1
@@ -633,7 +676,14 @@ if __name__ == "__main__":
         path_pruned = prune_near_duplicates(path, min_step=1e-3,
                                             weights=weights, revolute_mask=revolute_mask)
         path_uniform = resample_path_by_count(path_pruned, target_points=60,
-                                              weights=weights, revolute_mask=revolute_mask)        
+                                              weights=weights, revolute_mask=revolute_mask) 
+
+        all_paths.append(path_uniform)
+
+        # --- after path_uniform is computed ---
+        path_vis10 = resample_to_count(path_pruned, 10, weights=weights, revolute_mask=revolute_mask)
+        marker_positions = [ee_pos_world(cc, q, tool_site_id) for q in path_vis10]
+        all_markers.append(marker_positions)
 
         # Compute the path length
         L_ee_simple = workspace_length_simple(cc, path_uniform, site_id=tool_site_id)
@@ -642,10 +692,27 @@ if __name__ == "__main__":
     if display_gui:
         # Launch the MuJoCo viewer
         with mujoco.viewer.launch_passive(model, data) as viewer:
-            input("Press enter to start ...")
-            for i, q in enumerate(path_uniform):
-                data.qpos[:6] = q.tolist()
+            for i in range(n_pieces + 1): # Loop over all the screws
+
+                # Set a configuration
+                data.qpos[:6] = q_vec[i].tolist()
                 mujoco.mj_forward(model, data)
+                clear_all_point_markers(viewer)   # <-- removes all previously drawn markers
                 viewer.sync()
-                time.sleep(0.2)
-            input("Press enter to continue ...")
+                input(f"Press enter to move forward")
+
+                # Robot motion
+                input("Press enter to start ...")
+                for j, q in enumerate(all_paths[i]):
+                    rgba = color_by_index(i, n_pieces + 1, alpha=1.0)
+                    add_point_markers_to_viewer(
+                        viewer, all_markers[i],
+                        radius=0.008,
+                        rgba=rgba,
+                        clear=True
+                    )
+                    data.qpos[:6] = q.tolist()
+                    mujoco.mj_forward(model, data)
+                    viewer.sync()
+                    time.sleep(0.1)
+                input("Press enter to continue ...")

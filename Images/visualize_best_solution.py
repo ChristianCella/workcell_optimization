@@ -14,7 +14,7 @@ from transformations import (
     get_world_wrench,
     get_homogeneous_matrix,
 )
-from mujoco_utils import set_body_pose, compute_jacobian
+from mujoco_utils import set_body_pose, compute_jacobian, inverse_manipulability
 
 # Append the path to 'scene_manager'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
@@ -49,8 +49,8 @@ mujoco.mj_resetData(model, data)
 # Load CSVs (last/best row)
 # -----------------------------
 csv_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-xi_path = os.path.join(csv_dir, "results/data/screwing/turbo_ikflow/best_solutions.csv")
-q_path  = os.path.join(csv_dir, "results/data/screwing/turbo_ikflow/best_configs.csv")
+xi_path = os.path.join(csv_dir, "results/data/screwing/random/best_solutions.csv")
+q_path  = os.path.join(csv_dir, "results/data/screwing/random/best_configs.csv")
 
 df_xi = pd.read_csv(xi_path)
 df_q  = pd.read_csv(q_path)
@@ -104,7 +104,6 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     set_body_pose(model, data, screwdriver_body_id, [xi[3], xi[4], 0.03], euler_to_quaternion(xi[5], 0, 0))
 
     # IMPORTANT: reconstruct tool-tip (t) pose from tool-top (t1) using the SAME fixed offset used in optimization
-    # Build A_ee_t1 from xi[3:6] (get_homogeneous_matrix expects degrees for rotations)
     _, _, A_ee_t1 = get_homogeneous_matrix(float(xi[3]), float(xi[4]), 0.03, np.degrees(float(xi[5])), 0, 0)
     # Fixed transform from tool-top (t1) to tool-tip (t)
     _, _, A_t1_t  = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
@@ -118,11 +117,24 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     mujoco.mj_forward(model, data)
     viewer.sync()
 
+    # Compute matrix S
+    gear_ratios = robot_parameters.gear_ratios
+    max_torques = robot_parameters.max_torques
+    H_mat = np.diag(gear_ratios)
+    Gamma_mat = np.diag(max_torques)
+    S = np.linalg.inv(H_mat.T) @ np.linalg.inv(Gamma_mat.T) @ np.linalg.inv(Gamma_mat) @ np.linalg.inv(H_mat) #! S = H^-T * Gamma^-T * Gamma^-1 * H^-1
+
+    # centers and half-ranges
+    plan_joint_ids = np.arange(robot_parameters.nu, dtype=int)
+    jnt_range = model.jnt_range[plan_joint_ids].copy()
+    lb = jnt_range[:, 0]
+    ub = jnt_range[:, 1]
+    centers = (lb + ub) / 2
+    half_ranges = (ub - lb) / 2
     norms = []
     input("Press enter to continue")
 
     for idx in range(len(local_wrenches)):
-        print(f"Layout for piece {idx+1}")
 
         # Apply best joints for this piece
         data.qpos[:robot_parameters.nu] = q_mat[idx].tolist()
@@ -141,8 +153,29 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         tau_ext = J.T @ world_wrench
         tau_tot = tau_g + tau_ext
 
+        # Compute alpha, beta and gammma
+        alpha = world_wrench.T @ J @ S @ J.T @ world_wrench
+        beta = 2 * world_wrench.T @ J @ S @ tau_g
+        gamma = tau_g.T @ S @ tau_g
+
+        # Compute lambdas with the formula
+        lambda1 = (-beta + np.sqrt(beta**2 + 4 * alpha * (1 - gamma))) / (2 * alpha)
+        lambda2 = (-beta - np.sqrt(beta**2 + 4 * alpha * (1 - gamma))) / (2 * alpha)
+        lambda_star = np.max([lambda1, lambda2]) 
+
+        # Compute the manipulability
+        f_delta_j = inverse_manipulability(q_mat[idx].tolist().copy(), model, data, tool_site_id)
+
+        # Verify 'how centered' the robot is
+        z = (data.qpos[:robot_parameters.nu] - centers) / half_ranges
+        s_val = 1.0 - np.abs(z)
+        s_mean = np.mean(s_val)
+
         print(f"{fonts.blue}External torques: {np.array2string(tau_ext, precision=6)}{fonts.reset}")
         print(f"{fonts.red}Gravity torques:  {np.array2string(tau_g,   precision=6)}{fonts.reset}")
+        print(f"{fonts.green}Lambda_max for target {idx+1} is {lambda_star}{fonts.reset}")
+        print(f"{fonts.yellow}Manipulability for target {idx+1} is {f_delta_j}{fonts.reset}")
+        print(f"{fonts.purple}Joint centering measure s for target {idx+1} is {s_mean}{fonts.reset}")
 
         # Normalize by gear ratios & motor limits (same normalization used in optimization)
         norms.append(
