@@ -91,7 +91,7 @@ class FastIKFlowSolver:
         with suppress_native_stderr():
 
             robot = Robot(
-                name="ur5e_custom",
+                name="kuka_custom",
                 urdf_filepath=str(urdf_path),
                 active_joints = [
                     "iiwa_joint_1",

@@ -51,8 +51,8 @@ class ScrewingCMAES:
     verbose: bool = False # Display messages
     show_pose_duration: int = 0.05  # Seconds to show each pose
     activate_gui : bool = True  # Activate the GUI for visualization
-    csv_directory: str = "hole1/cma_es_ikflow"  # Directory to save CSV files
-    starting_position : float = 0.0 # Center of the line
+    csv_directory: str = "hole2/cma_es_ikflow"  # Directory to save CSV files
+    starting_position : float = 0.3467 # Center of the line
     line_length : float = 2.0 # s meters is the total length
 
     # Ikflow variables
@@ -63,8 +63,8 @@ class ScrewingCMAES:
     x0: np.ndarray = field(default_factory=lambda: 
                            np.array([0.0, 0.05, np.radians(-90.0)]))  # initial mean mu
     sigma0 : float = 2  # initial std sigma
-    popsize: int = 3  # number of individuals
-    n_iter: int = 4  # number of iterations
+    popsize: int = 4  # number of individuals
+    n_iter: int = 10  # number of iterations
 
 @dataclass
 class ScrewingRandom:
