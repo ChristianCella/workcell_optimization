@@ -147,8 +147,38 @@ plt.tight_layout()
 plt.show()
 
 # --- Plot 2: Boxplot ---
-plt.figure(figsize=(8, 4))
-plt.boxplot([turbo_vals, cma_es_vals, turbo_bioik2_vals, random_vals], vert=True, patch_artist=True, labels=[r"\texttt{TuRBO-ikflow}", r"\texttt{cma_es-ikflow}", r"\texttt{TuRBO-bioik2}", r"\texttt{random}"])
+labels = [
+    r"$\texttt{TuRBO}_{\texttt{ikf}}$",
+    r"$\texttt{cma-es}_{\texttt{ikf}}$",
+    r"$\texttt{TuRBO}_{\texttt{bio}}$",
+    r"$\texttt{random}$",
+]
+
+# Matplotlib's default cycle: blue, orange, green, red
+colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
+fig, ax = plt.subplots(figsize=(8, 4))
+bp = ax.boxplot([turbo_vals, cma_es_vals, turbo_bioik2_vals, random_vals], 
+            vert=True, 
+            patch_artist=True, 
+            labels=labels,
+            widths=0.6,
+            medianprops=dict(linewidth=2),
+            boxprops=dict(linewidth=2),
+            whiskerprops=dict(linewidth=1.5),
+            capprops=dict(linewidth=1.5),
+            flierprops=dict(markersize=4, markeredgewidth=0.8))
+
+# Color each series consistently
+for i, col in enumerate(colors):
+    bp["boxes"][i].set(facecolor=col, edgecolor=col, alpha=0.75)
+    for w in bp["whiskers"][2*i:2*i+2]:
+        w.set(color=col)
+    for c in bp["caps"][2*i:2*i+2]:
+        c.set(color=col)
+    bp["medians"][i].set(color=col, linewidth=2)
+    if len(bp["fliers"]) > i:
+        bp["fliers"][i].set(markerfacecolor=col, markeredgecolor=col, alpha=0.7)
+
 plt.xticks(fontsize=16)
 plt.ylabel(r"$\bar{f}_{\tau}$", fontsize=18)
 #plt.title("Boxplot of Aggregated Values", fontsize=16)

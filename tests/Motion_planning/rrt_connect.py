@@ -608,23 +608,23 @@ if __name__ == "__main__":
     cc = MuJoCoCollisionChecker(model, base_qpos=base_qpos, joint_ids=plan_joint_ids)
 
     # Joint configurations
-    q0 = np.array([1.93, -2.98, 1.41, -1.49, -1.56, 2.44])
-    q1 = np.array([-5.835175, 4.402239, -1.5875205, -1.7714313, -4.6415086, -6.1713014])
-    q2 = np.array([2.1754599, 3.9184961, -2.262606, -4.605288, 5.1739826, 4.9312534])
-    q3 = np.array([-3.39, 4.97, 1.46, 5.25, -1.1965, -0.91])
-    q4 = np.array([1.36, -2.36, -0.94, -2.58, -5.29, 3.82])
+    q0 = np.array([3.21027059, -1.9272767, 1.48896107, -1.37510302, -1.44544918, 0.95626117])
+    q1 = np.array([0.15059298, -1.9684049, -1.2978784, -1.9602102, 1.4496244, -5.277653])
+    q2 = np.array([-1.2701917, 4.5727887, -2.2972264, -2.6262078, 2.8014793, -1.7441303])
+    q3 = np.array([0.1688487, -1.8245841, -1.1593906, 3.9542334, -4.682046, 6.083762])
+    q4 = np.array([0.7913572, 3.4261384, -0.9194052, 3.7546575, 0.88130957, 3.0444038])
     q_vec = [q0, q1, q2, q3, q4]
 
     # set the robot pose
-    _, _, A_w_b = get_homogeneous_matrix(0.2664672921246696, 0.068153650497219, 0, 0, 0, 0)
+    _, _, A_w_b = get_homogeneous_matrix(0.4873, -0.19549, 0.1, np.degrees(-0.6421), 0, 0)
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the piece in the environment (matrix A^w_p)
-    _, _, A_w_p = get_homogeneous_matrix(-0.15, -0.15, 0, 0, 0, 0)
+    _, _, A_w_p = get_homogeneous_matrix(-0.00698421, -0.04174008, 0, 0, 0, 0)
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-    _, _, A_ee_t1 = get_homogeneous_matrix(0, 0.15, 0, 30, 0, 0)
+    _, _, A_ee_t1 = get_homogeneous_matrix(0.09105138, 0.06823934, 0.03, np.degrees(0.63059139), 0, 0)
     set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
     # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
@@ -692,6 +692,14 @@ if __name__ == "__main__":
     if display_gui:
         # Launch the MuJoCo viewer
         with mujoco.viewer.launch_passive(model, data) as viewer:
+
+            viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
+            viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
+            #viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_TEXTURE] = True
+            #viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_FLAT] = 0
+            viewer.sync()  # apply user_scn changes to the render pipeline
+
+
             for i in range(n_pieces + 1): # Loop over all the screws
 
                 # Set a configuration

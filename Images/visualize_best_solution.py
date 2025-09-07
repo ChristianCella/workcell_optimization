@@ -49,8 +49,8 @@ mujoco.mj_resetData(model, data)
 # Load CSVs (last/best row)
 # -----------------------------
 csv_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-xi_path = os.path.join(csv_dir, "results/data/screwing/random/best_solutions.csv")
-q_path  = os.path.join(csv_dir, "results/data/screwing/random/best_configs.csv")
+xi_path = os.path.join(csv_dir, "results/data/screwing/turbo_ikflow/best_solutions.csv")
+q_path  = os.path.join(csv_dir, "results/data/screwing/turbo_ikflow/best_configs.csv")
 
 df_xi = pd.read_csv(xi_path)
 df_q  = pd.read_csv(q_path)
@@ -152,6 +152,7 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         world_wrench = get_world_wrench(R_world_to_tool, local_wrenches[idx])
         tau_ext = J.T @ world_wrench
         tau_tot = tau_g + tau_ext
+        tau_joint_lim = gear_ratios * max_torques
 
         # Compute alpha, beta and gammma
         alpha = world_wrench.T @ J @ S @ J.T @ world_wrench
@@ -162,6 +163,9 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         lambda1 = (-beta + np.sqrt(beta**2 + 4 * alpha * (1 - gamma))) / (2 * alpha)
         lambda2 = (-beta - np.sqrt(beta**2 + 4 * alpha * (1 - gamma))) / (2 * alpha)
         lambda_star = np.max([lambda1, lambda2]) 
+
+        # Compute the real ratios for scaling
+        lambda_real = np.abs(tau_joint_lim) / np.abs(tau_tot)
 
         # Compute the manipulability
         f_delta_j = inverse_manipulability(q_mat[idx].tolist().copy(), model, data, tool_site_id)
@@ -174,6 +178,7 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         print(f"{fonts.blue}External torques: {np.array2string(tau_ext, precision=6)}{fonts.reset}")
         print(f"{fonts.red}Gravity torques:  {np.array2string(tau_g,   precision=6)}{fonts.reset}")
         print(f"{fonts.green}Lambda_max for target {idx+1} is {lambda_star}{fonts.reset}")
+        print(f"{fonts.cyan}Minimum scaling ratio for target {idx+1} is {np.min(lambda_real)} (joint {np.argmin(lambda_real)}){fonts.reset}")
         print(f"{fonts.yellow}Manipulability for target {idx+1} is {f_delta_j}{fonts.reset}")
         print(f"{fonts.purple}Joint centering measure s for target {idx+1} is {s_mean}{fonts.reset}")
 
