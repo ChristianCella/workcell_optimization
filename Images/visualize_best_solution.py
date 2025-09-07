@@ -14,7 +14,7 @@ from transformations import (
     get_world_wrench,
     get_homogeneous_matrix,
 )
-from mujoco_utils import set_body_pose, compute_jacobian
+from mujoco_utils import set_body_pose, compute_jacobian, inverse_manipulability
 
 # Append the path to 'scene_manager'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
@@ -104,10 +104,19 @@ piece_body_id       = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "alumin
 tool_site_id        = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
 screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
 
+# NOTE: Temporarily overwrite q_mat
+
+q_mat = np.array([[-1.28, 1.383, 1.558, -0.396, 1.668, -1.725, -2.45], 
+                  [-2.047, 1.381, -1.655, -1.035, 1.449, 1.739, -1.529]])
+
+
 # -----------------------------
 # Viewer & replay
 # -----------------------------
 with mujoco.viewer.launch_passive(model, data) as viewer:
+    viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
+    viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
+    viewer.sync()
     input("Press enter to visualize the result ...")
     mujoco.mj_resetData(model, data)
 
@@ -115,12 +124,15 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         y_b, z_t, theta_y_p = xi[i]
 
         # Set base and piece poses
-        set_body_pose(model, data, base_body_id, [0.0, y_b, 0.15], euler_to_quaternion(0, 0, np.pi/2)) 
-        set_body_pose(model, data, piece_body_id, [0.6, 0.0, 0.8], euler_to_quaternion(0, theta_y_p, np.pi))
-        set_body_pose(model, data, screwdriver_body_id, [0.1, 0.0, z_t], euler_to_quaternion(0, 0, 0))
+        #set_body_pose(model, data, base_body_id, [0.0, y_b, 0.15], euler_to_quaternion(0, 0, np.pi/2)) 
+        set_body_pose(model, data, base_body_id, [0.0, 0.0, 0.15], euler_to_quaternion(0, 0, np.pi/2)) 
+        #set_body_pose(model, data, piece_body_id, [0.6, 0.0, 0.8], euler_to_quaternion(0, theta_y_p, np.pi))
+        set_body_pose(model, data, piece_body_id, [0.6, 0.0, 0.2], euler_to_quaternion(0, 0, np.pi))
+        #set_body_pose(model, data, screwdriver_body_id, [0.1, 0.0, z_t], euler_to_quaternion(0, 0, 0))
+        set_body_pose(model, data, screwdriver_body_id, [0.1, 0.0, 0.0], euler_to_quaternion(0, 0, 0))
 
         # Compute transformation tool_top → tool_frame
-        _, _, A_ee_t1 = get_homogeneous_matrix(0.1, 0.0, z_t, 0, 0, 0)
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.1, 0.0, 0, 0, 0, 0)
         _, _, A_t1_t  = get_homogeneous_matrix(0, 0, 0.26, 0, 0, 0)
         A_ee_t = A_ee_t1 @ A_t1_t
         set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
@@ -141,6 +153,13 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         mujoco.mj_forward(model, data)
         viewer.sync()
 
+        # Compute matrix S
+        gear_ratios = robot_parameters.gear_ratios
+        max_torques = robot_parameters.max_torques
+        H_mat = np.diag(gear_ratios)
+        Gamma_mat = np.diag(max_torques)
+        S = np.linalg.inv(H_mat.T) @ np.linalg.inv(Gamma_mat.T) @ np.linalg.inv(Gamma_mat) @ np.linalg.inv(H_mat) #! S = H^-T * Gamma^-T * Gamma^-1 * H^-1
+
         # Compute torques
         J = compute_jacobian(model, data, tool_site_id)
         tau_g = data.qfrc_bias[:robot_parameters.nu]
@@ -150,8 +169,30 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         tau_ext = J.T @ world_wrench
         tau_tot = tau_g + tau_ext
 
+        tau_joint_lim = gear_ratios * max_torques
+
+        # Compute alpha, beta and gammma
+        alpha = world_wrench.T @ J @ S @ J.T @ world_wrench
+        beta = 2 * world_wrench.T @ J @ S @ tau_g
+        gamma = tau_g.T @ S @ tau_g
+
+        # Compute lambdas with the formula
+        lambda1 = (-beta + np.sqrt(beta**2 + 4 * alpha * (1 - gamma))) / (2 * alpha)
+        lambda2 = (-beta - np.sqrt(beta**2 + 4 * alpha * (1 - gamma))) / (2 * alpha)
+        lambda_star = np.max([lambda1, lambda2])
+
+        # Compute the real ratios for scaling
+        lambda_real = np.abs(tau_joint_lim) / np.abs(tau_tot)
+
+        # Compute the manipulability
+        f_delta_j = inverse_manipulability(q_mat[i].tolist().copy(), model, data, tool_site_id)
+
         print(f"{fonts.blue}External torques: {np.array2string(tau_ext, precision=6)}{fonts.reset}")
         print(f"{fonts.red}Gravity torques:  {np.array2string(tau_g,   precision=6)}{fonts.reset}")
+        print(f"{fonts.green}Lambda_max is {lambda_star}{fonts.reset}")
+        print(f"{fonts.cyan}Minimum scaling ratiois {np.min(lambda_real)} (joint {np.argmin(lambda_real)}){fonts.reset}")
+        print(f"{fonts.yellow}Manipulability is {f_delta_j}{fonts.reset}")
+
 
         norm = np.linalg.norm(
             tau_tot / (np.array(robot_parameters.gear_ratios) * np.array(robot_parameters.max_torques))

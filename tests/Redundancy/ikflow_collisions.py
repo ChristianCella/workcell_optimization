@@ -55,15 +55,15 @@ def main():
     # Set robot base (matrix A^w_b)
     t_w_b = np.array([0.0, 0.0, 0.15])
     #t_w_b = np.array([0.0, 0.0, 0.0])
-    #R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(90)], degrees=False).as_matrix()
-    R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+    R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(90)], degrees=False).as_matrix()
+    #R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
     A_w_b = np.eye(4)
     A_w_b[:3, 3] = t_w_b
     A_w_b[:3, :3] = R_w_b
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-    t_ee_t1 = np.array([0, 0.1, 0.05]) # 0, 0.15, 0
+    t_ee_t1 = np.array([0.1, 0.0, 0.0]) # 0, 0.15, 0
     R_ee_t1 = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix() # 30, 0, 0
     A_ee_t1 = np.eye(4)
     A_ee_t1[:3, 3] = t_ee_t1
@@ -82,7 +82,7 @@ def main():
     set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
     # Set the piece in the environment (matrix A^w_p)
-    _, _, A_w_p = get_homogeneous_matrix(0.8, 0, 0.8, 0, -90, 180)
+    _, _, A_w_p = get_homogeneous_matrix(0.6, 0, 0.2, 0, 0, 180)
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Get the frame of the hole
@@ -100,8 +100,8 @@ def main():
     counter_start_inference = time.time()
 
     #Get the pose of the target 
-    posit = data.xpos[ref_body_ids[0]]
-    rotm = data.xmat[ref_body_ids[0]].reshape(3, 3)
+    posit = data.xpos[ref_body_ids[1]]
+    rotm = data.xmat[ref_body_ids[1]].reshape(3, 3)
     theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=True)
 
     #print(f"The pose of the target is: pos={np.round(posit,3)}, angles={np.round([theta_x_0, theta_y_0, theta_z_0],3)}")
@@ -131,13 +131,11 @@ def main():
     print(f"--- Inference took {counter_end_inference - counter_start_inference:.2f} seconds for {params.N_samples} samples ---")
 
     # bring solutions back to host for numpy()
-    counter_start_cpu = time.time()
     sols_ok = torch.cat(sols_ok, dim=0)  # -> (ΣKi, 7)
     fk_ok   = torch.cat(fk_ok,   dim=0)  # -> (ΣKi, 7)
     sols_np = sols_ok.cpu().numpy()
     fk_np   = fk_ok.cpu().numpy()
-    counter_end_cpu = time.time()
-    if params.verbose: print(f"--- Bringing solutions to cpu took {counter_end_cpu - counter_start_cpu:.2f} seconds ---")
+
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input("Press Enter to start visualizing IK-flow solutions…")      
@@ -161,6 +159,7 @@ def main():
                 viewer.sync()
                 n_cols = get_collisions(model, data, params.verbose)
                 sigma_manip = inverse_manipulability(q, model, data, tool_site_id)
+                print(f"{fonts.yellow}The manipulability is {sigma_manip}{fonts.reset}")
                 time.sleep(params.show_pose_duration)
                 #print(f"Number of collisions detected: {n_cols}; inverse manipulability: {sigma_manip:.3f}")
 
