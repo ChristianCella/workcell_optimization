@@ -133,7 +133,7 @@ turbo_bioik2_vals = replace_spikes_previous(turbo_bioik2_vals, thresh=10.0)
 random_vals = replace_spikes_previous(random_vals, thresh=10.0)
 
 # --- Plot 1: Trend ---
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(8, 5))
 plt.plot(range(1, len(turbo_vals)+1), turbo_vals, linewidth=2, label=r"\texttt{TuRBO-ikflow}")
 plt.plot(range(1, len(cma_es_vals)+1), cma_es_vals, linewidth=2, label=r"\texttt{cma_es-ikflow}")
 plt.plot(range(1, len(turbo_bioik2_vals)+1), turbo_bioik2_vals, linewidth=2, label=r"\texttt{TuRBO-bioik2}")
@@ -156,7 +156,7 @@ labels = [
 
 # Matplotlib's default cycle: blue, orange, green, red
 colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
-fig, ax = plt.subplots(figsize=(8, 4))
+fig, ax = plt.subplots(figsize=(6, 4))
 bp = ax.boxplot([turbo_vals, cma_es_vals, turbo_bioik2_vals, random_vals], 
             vert=True, 
             patch_artist=True, 
@@ -180,7 +180,8 @@ for i, col in enumerate(colors):
         bp["fliers"][i].set(markerfacecolor=col, markeredgecolor=col, alpha=0.7)
 
 plt.xticks(fontsize=16)
-plt.ylabel(r"$\bar{f}_{\tau}$", fontsize=18)
+plt.yticks(fontsize=16)
+plt.ylabel(r"$\mathbf{f_L}$", fontsize=18)
 #plt.title("Boxplot of Aggregated Values", fontsize=16)
 plt.grid(True)
 plt.tight_layout()
