@@ -5,14 +5,16 @@ import numpy as np
 import time
 import os
 import sys
+from collections import deque
 from scipy.spatial.transform import Rotation as R
 
 ''' 
-Inverse-dynamics (computed-torque) control on UR5e.
-- Apply a step in joint configuration and hold it with computed torque.
-- Torques are computed via mj_inverse from an acceleration command:
-    qacc_cmd = qdd_des + Kd*(qd_des - qd) + Kp*(q_des - q)
-- Optional integral term is added as a torque (anti-windup recommended).
+Inverse-dynamics (computed-torque) control on UR5e with optional I/O delays.
+- Control law:
+    qacc_cmd = qdd_des + Kd*(qd_des - qd_meas) + Kp*(q_des - q_meas)
+- Torques are computed via mj_inverse at the current plant state.
+- Optional sensor (measurement) delay and/or actuation (command) delay are modeled
+  by FIFO buffers in discrete time.
 '''
 
 utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../utils'))
@@ -22,9 +24,14 @@ from transformations import rotm_to_quaternion, get_world_wrench, get_homogeneou
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian
 
 # ---- Gains 
-Kp = np.array([30, 30, 30, 30, 30, 30], dtype=float)
-Kd = np.array([15, 15, 15, 15, 15, 15], dtype=float)
-Ki = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=float)
+Kp = np.array([15, 15, 15, 15, 15, 15], dtype=float)
+Kd = np.array([8, 8, 8, 8, 8, 8], dtype=float)
+
+# ---- Delay settings (edit these) ----
+DELAY_MS = 0.0 # = or 130 are good tests
+SENSING_DELAY = True         # controller uses delayed measurements (q, qd)
+ACTUATION_DELAY = False      # apply a delayed torque (command delay)
+# -------------------------------------
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
@@ -42,6 +49,14 @@ def main():
         model = mujoco.MjModel.from_xml_path(xml_path)
         data = mujoco.MjData(model)
         mujoco.mj_resetData(model, data)
+
+        # --- Discrete delay buffers (computed from sim timestep) ---
+        sim_dt = model.opt.timestep
+        delay_steps = max(1, int(round((DELAY_MS / 1000.0) / sim_dt)))
+
+        # Buffers for delayed sensing (q, qd) and delayed actuation (tau)
+        state_fifo = deque(maxlen=delay_steps + 1)
+        torque_fifo = deque(maxlen=delay_steps + 1)
 
         # List of target joint positions (radians)
         target_qpos_list = [
@@ -69,6 +84,13 @@ def main():
             data.qacc[:] = 0.0
             viewer.sync()
 
+            # Prime the FIFOs with initial state and zero torque
+            q0 = data.qpos[:6].copy()
+            qd0 = data.qvel[:6].copy()
+            for _ in range(delay_steps + 1):
+                state_fifo.append((q0.copy(), qd0.copy()))
+                torque_fifo.append(np.zeros(6))
+
             input("Press Enter to start the robot configuration...")
 
             for i, desired_qpos in enumerate(target_qpos_list):
@@ -85,35 +107,50 @@ def main():
                     dt = current_time - last_time
                     last_time = current_time
                     if dt <= 0.0:
-                        dt = model.opt.timestep
+                        dt = sim_dt
 
                     # ---- Inverse-dynamics control (COMPUTED TORQUE) ----
                     # Desired trajectory for a step: qd_des = 0, qdd_des = 0
-                    q_des = desired_qpos
+                    q_des  = desired_qpos
                     qd_des = np.zeros(6)
                     qdd_des = np.zeros(6)
 
-                    q = data.qpos[:6]
-                    qd = data.qvel[:6]
-                    e = q_des - q
-                    ed = qd_des - qd
+                    # Push *current* measured plant state to FIFO
+                    state_fifo.append((data.qpos[:6].copy(), data.qvel[:6].copy()))
+
+                    # Controller sees either delayed or current measurements
+                    if SENSING_DELAY:
+                        q_meas, qd_meas = state_fifo[0]  # ~ Td old
+                    else:
+                        q_meas, qd_meas = data.qpos[:6], data.qvel[:6]
+
+                    # Errors based on (possibly delayed) measurements
+                    e  = q_des - q_meas
+                    ed = qd_des - qd_meas
 
                     # (1) Build desired accelerations
                     qacc_cmd = qdd_des + Kd * ed + Kp * e
 
-                    # (2) Ask MuJoCo what torque realizes qacc_cmd at (q, qd)
+                    # (2) Ask MuJoCo what torque realizes qacc_cmd at the CURRENT plant state
                     data.qacc[:] = 0.0
                     data.qacc[:6] = qacc_cmd
                     mujoco.mj_inverse(model, data)
-                    tau_id = data.qfrc_inverse.copy()
+                    tau_now = data.qfrc_inverse[:6].copy()
+
+                    # Add to torque FIFO and select what to apply
+                    torque_fifo.append(tau_now)
+                    if ACTUATION_DELAY:
+                        tau_to_apply = torque_fifo[0]   # delayed command
+                    else:
+                        tau_to_apply = tau_now
 
                     # (4) Apply torques via actuators
-                    data.ctrl[:6] = tau_id[:6]
+                    data.ctrl[:6] = tau_to_apply
 
                     # Step the simulation
                     mujoco.mj_step(model, data)
                     viewer.sync()
-                    time.sleep(model.opt.timestep)
+                    time.sleep(sim_dt)
 
                     # Display the torques applied by actuators
                     print(f"{time.perf_counter()-start_time:.2f}\t{np.round(data.qfrc_actuator[:6], 2)}")
