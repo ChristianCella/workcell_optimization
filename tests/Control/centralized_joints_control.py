@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import csv
 import mujoco
 import mujoco.viewer
 import numpy as np
@@ -25,13 +26,14 @@ from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, 
 
 # ---- Gains 
 Kp = np.array([15, 15, 15, 15, 15, 15], dtype=float)
-Kd = np.array([8, 8, 8, 8, 8, 8], dtype=float)
+Kd = np.array([8, 8, 8, 8, 8, 8], dtype=float) # 6 for the delay, 8 without
 
 # ---- Delay settings (edit these) ----
 DELAY_MS = 0.0 # = or 130 are good tests
 SENSING_DELAY = True         # controller uses delayed measurements (q, qd)
 ACTUATION_DELAY = False      # apply a delayed torque (command delay)
-# -------------------------------------
+
+pos_array = []
 
 def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     r = R.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
@@ -147,6 +149,9 @@ def main():
                     # (4) Apply torques via actuators
                     data.ctrl[:6] = tau_to_apply
 
+                    # Get the positions
+                    pos_array.append(data.qpos[0].copy())
+
                     # Step the simulation
                     mujoco.mj_step(model, data)
                     viewer.sync()
@@ -157,6 +162,12 @@ def main():
 
                 print(f"{fonts.red}Final joint angles (deg): {np.round(np.degrees(data.qpos[:6]), 2)}{fonts.reset}")
                 print("======================================")
+
+                # Save the angles
+                with open("positions.csv", "w", newline="") as f:
+                    writer = csv.writer(f)
+                    for pos in pos_array:
+                        writer.writerow([pos])
 
             print("\n--- Finished all configurations. ---")
             input("Press Enter to close the viewer and exit...")
