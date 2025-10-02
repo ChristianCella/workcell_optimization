@@ -26,8 +26,9 @@ data = mujoco.MjData(model)
 with mujoco.viewer.launch_passive(model, data) as viewer:
 
     #q = np.radians([42, 20, 14, 0, 57, 72])
-    q = np.radians([53, -55, 84, -62, 138, 40]) # Example of colliding geometry
-    q = np.radians([0, -8, 70, 0, 25, 0])
+    #q = np.radians([53, -55, 84, -62, 138, 40]) # Example of colliding geometry
+    #q = np.radians([0, -8, 70, 0, 25, 0])
+    q = np.array([2.4377, -0.2343, -1.2235, -0.3757,  0.1523, -1.3767])
     data.qpos[:6] = q.tolist()
     mujoco.mj_forward(model, data)
     viewer.sync()

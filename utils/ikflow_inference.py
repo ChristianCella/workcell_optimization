@@ -87,18 +87,17 @@ class FastIKFlowSolver:
             torch.backends.cudnn.deterministic = False
 
         # robot
-        urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e" / "ur5e.urdf"
+        urdf_path = project_root / "GoFa_utils_mujoco" / "GoFa5" / "patched_GoFa5.urdf"
         with suppress_native_stderr():
 
             robot = Robot(
-                name="ur5e_custom",
+                name="GoFa5_custom",
                 urdf_filepath=str(urdf_path),
                 active_joints=[
-                    "shoulder_pan_joint","shoulder_lift_joint","elbow_joint",
-                    "wrist_1_joint","wrist_2_joint","wrist_3_joint",
+                    "joint_1","joint_2","joint_3","joint_4", "joint_5", "joint_6"
                 ],
                 base_link="base_link",
-                end_effector_link_name="wrist_3_link",
+                end_effector_link_name="tool0",
                 ignored_collision_pairs=[],
                 collision_capsules_by_link=None,
             )
@@ -154,8 +153,8 @@ class FastIKFlowSolver:
         ckpt = (
             project_root
             / "ikflow" / "ikflow" / "weights"
-            / "ur5e_custom--Aug.07.2025_11-27AM"
-            / "weights-epoch=250.ckpt"
+            / "GoFa5_custom--Oct.02.2025_11-25AM"
+            / "weights-epoch=19.ckpt"
         )
         lit = IkfLitModel.load_from_checkpoint(
             str(ckpt),
@@ -257,8 +256,8 @@ if __name__ == "__main__":
 
     # Define a target pose
     target = torch.tensor([
-        -0.5430, -0.0486,  0.4806,
-         0.3760, -0.5168,  0.4190,  0.6450
+        0.605, 0, 0.33531,
+        0, 1, 0, 0
     ])
     print("=== Single Pose Test ===")
     t0 = time.time()
