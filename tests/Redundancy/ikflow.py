@@ -186,6 +186,7 @@ def main():
             print(f"Evaluating collisions and Jacobian on {len(sols_np)} samples lasted {time.time() - start_inference:.2f} seconds")
             print(f"The best configuration is: {np.round(best_q, 3)} with cost {best_cost:.3f}")
             input("Press Enter to apply the best configuration…")
+            
             # Optimization is over => apply the best configuration
             data.qpos[:6] = best_q.tolist()
             mujoco.mj_forward(model, data)
