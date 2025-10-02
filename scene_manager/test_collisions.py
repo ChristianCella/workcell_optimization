@@ -14,7 +14,7 @@ sys.path.append(utils_dir)
 from mujoco_utils import get_collisions
 
 #model_path = os.path.join(base_dir, "GoFa_utils_mujoco/GoFa5/empty_environment.xml")
-model_path = os.path.join(base_dir, "GoFa_utils_mujoco/GoFa5/GoFa5.xml")
+model_path = os.path.join(base_dir, "GoFa_utils_mujoco/GoFa12/GoFa12.xml")
 
 # Load the model
 model = mujoco.MjModel.from_xml_path(model_path)
@@ -28,7 +28,8 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     #q = np.radians([42, 20, 14, 0, 57, 72])
     #q = np.radians([53, -55, 84, -62, 138, 40]) # Example of colliding geometry
     #q = np.radians([0, -8, 70, 0, 25, 0])
-    q = np.array([2.4377, -0.2343, -1.2235, -0.3757,  0.1523, -1.3767])
+    #q = np.array([2.4377, -0.2343, -1.2235, -0.3757,  0.1523, -1.3767])
+    q = np.array([2.9064, -1.6322, -2.8301, -0.2380,  3.0534,  1.7904])
     data.qpos[:6] = q.tolist()
     mujoco.mj_forward(model, data)
     viewer.sync()

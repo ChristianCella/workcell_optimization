@@ -25,7 +25,7 @@ def main():
 
     # Path setup 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
-    model_path = os.path.join(base_dir, "GoFa_utils_mujoco/GoFa5/GoFa5.xml")
+    model_path = os.path.join(base_dir, "GoFa_utils_mujoco/GoFa12/GoFa12.xml")
 
     # Load MuJoCo model
     model = mujoco.MjModel.from_xml_path(str(model_path))
@@ -33,7 +33,7 @@ def main():
     mujoco.mj_resetData(model, data)
 
     # Get body/site IDs
-    base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "Gofa/Base")
+    base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "GoFa12/Base")
     tool_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, 'tool_site')
 
@@ -57,7 +57,7 @@ def main():
     theta_w_p_x_0 = np.radians(180)
     theta_w_p_y_0 = np.radians(0)
     theta_w_p_z_0 = np.radians(45)
-    t_w_p = np.array([0.3, -0.4, 0.2]) # [0.2, 0.2, 0.2]
+    t_w_p = np.array([0.35, -0.5, 0.4]) # [0.2, 0.2, 0.2]
     R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
     A_w_p = np.eye(4)
     A_w_p[:3, 3] = t_w_p
