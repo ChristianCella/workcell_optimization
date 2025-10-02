@@ -154,7 +154,7 @@ class FastIKFlowSolver:
             project_root
             / "ikflow" / "ikflow" / "weights"
             / "GoFa5_custom--Oct.02.2025_11-25AM"
-            / "weights-epoch=19.ckpt"
+            / "weights-epoch=49.ckpt"
         )
         lit = IkfLitModel.load_from_checkpoint(
             str(ckpt),

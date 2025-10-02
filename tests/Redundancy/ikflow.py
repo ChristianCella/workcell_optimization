@@ -46,7 +46,7 @@ def main():
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Fixed transformation 'tool top (t1) => tool tip (t)'
-    t_ee_t = np.array([0, 0.0, 0.1])
+    t_ee_t = np.array([0, 0.0, 0])
     R_ee_t = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
     A_ee_t = np.eye(4)
     A_ee_t[:3, 3] = t_ee_t
@@ -56,8 +56,8 @@ def main():
     # Piece in the world (define A^w_p) => this is also used to put the frame in space  
     theta_w_p_x_0 = np.radians(180)
     theta_w_p_y_0 = np.radians(0)
-    theta_w_p_z_0 = np.radians(0)
-    t_w_p = np.array([0.4, 0.4, 0.4]) # [0.2, 0.2, 0.2]
+    theta_w_p_z_0 = np.radians(45)
+    t_w_p = np.array([0.3, -0.4, 0.2]) # [0.2, 0.2, 0.2]
     R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
     A_w_p = np.eye(4)
     A_w_p[:3, 3] = t_w_p
