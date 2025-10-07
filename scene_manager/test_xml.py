@@ -8,10 +8,10 @@ from scipy.spatial.transform import Rotation as R
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.append(base_dir)
 # model_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_tool/small_tool.xml")
-# model_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/ur5e.xml")
+model_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/ur5e.xml")
 # model_path = os.path.join(base_dir, "ur5e_utils_mujoco/empty_environment.xml")
 # model_path = os.path.join(base_dir, "ur5e_utils_mujoco/obstacles/cube.xml")
-model_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_tool/screwdriver.xml")
+#model_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_tool/screwdriver.xml")
 # model_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces/table_grip.xml")
 # model_path = os.path.join(base_dir, "GoFa_utils_mujoco/GoFa5/GoFa5.xml")
 
