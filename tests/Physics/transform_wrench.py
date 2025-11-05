@@ -26,6 +26,6 @@ if __name__ == "__main__":
     if verbose and check: print("Correct rotation matrix from local to world frame:\n", R_l_w_check.as_matrix())
 
     # Wrench in the world frame
-    F_world = get_world_wrench(R_l_w, wrench_local)  # This function should return the wrench in the world frame
+    F_world = get_world_wrench(R_l_w, wrench_local)  # This function returns the wrench in the world frame
     if verbose: print("Force in world frame:", F_world)
 
