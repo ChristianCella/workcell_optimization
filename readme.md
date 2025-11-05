@@ -1,4 +1,4 @@
-# Optimization of a robotic workcell 🤖🪛➡️
+# Layout optimization - ARTO project 🤖🪛➡️
 This repo allows to optimize a robotic ell, regardless of the robot, the position of the workpiece and the number of screws. An extended version to accoutn for general contact applications is under development.
 
 ---
