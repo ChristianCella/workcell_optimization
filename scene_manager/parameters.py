@@ -38,67 +38,6 @@ class ScrewingTurbo:
     popsize: int = 40  # number of individuals
     n_iter: int = 100  # number of iterations
 
-# ! At the end, we did not use this (it takes too long)
-@dataclass
-class ScrewingTurboBioik2:
-
-    # Control variables
-    verbose: bool = False # Display messages
-    show_pose_duration: int = 0.05  # Seconds to show each pose
-    activate_gui : bool = True  # Activate the GUI for visualization
-    csv_directory: str = "screwing/turbo_bioik2"  # Directory to save CSV files
-
-@dataclass
-class ScrewingTurboDLS:
-
-    # Control variables
-    verbose: bool = False # Display messages
-    show_pose_duration: int = 0.05  # Seconds to show each pose
-    activate_gui : bool = True  # Activate the GUI for visualization
-    csv_directory: str = "screwing/turbo_dls"  # Directory to save CSV files
-
-@dataclass
-class ScrewingCMAES:
-
-    # Control variables
-    verbose: bool = False # Display messages
-    show_pose_duration: int = 0.05  # Seconds to show each pose
-    activate_gui : bool = True  # Activate the GUI for visualization
-    csv_directory: str = "screwing/cma_es_ikflow"  # Directory to save CSV files
-
-    # Ikflow variables
-    N_samples: int = 25  # Samples per 'discretized' pose configuration
-    N_disc: int = 90  # Number of discrete configurations to test (rotational sweep)
-    
-    # cma-es variables
-    x0: np.ndarray = field(default_factory=lambda: 
-                           np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, np.radians(180), np.radians(-100), 
-                                     np.radians(80), np.radians(-90), np.radians(-90), np.radians(45)]))  # initial mean mu
-    sigma0 : float = 2  # initial std sigma
-    popsize: int = 40  # number of individuals
-    n_iter: int = 100  # number of iterations
-
-@dataclass
-class ScrewingRandom:
-
-    # Control variables
-    verbose: bool = False # Display messages
-    show_pose_duration: int = 0.05  # Seconds to show each pose
-    activate_gui : bool = True  # Activate the GUI for visualization
-    csv_directory: str = "screwing/random"  # Directory to save CSV files
-
-    # Ikflow variables
-    N_samples: int = 20  # Samples per 'discretized' pose configuration
-    N_disc: int = 1  # Number of discrete configurations to test (rotational sweep)
-    
-    # cma-es variables
-    x0: np.ndarray = field(default_factory=lambda: 
-                           np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, np.radians(180), np.radians(-100), 
-                                     np.radians(80), np.radians(-90), np.radians(-90), np.radians(45)]))  # initial mean mu
-    sigma0 : float = 2  # initial std sigma
-    popsize: int = 40  # number of individuals
-    n_iter: int = 100  # number of iterations
-
 @dataclass
 class Ur5eRobot:
     nu: int = 6 # Number of joints
