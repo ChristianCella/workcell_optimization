@@ -87,11 +87,11 @@ class FastIKFlowSolver:
             torch.backends.cudnn.deterministic = False
 
         # robot
-        urdf_path = project_root / "GoFa_utils_mujoco" / "GoFa12" / "patched_GoFa12.urdf"
+        urdf_path = project_root / "GoFa_utils_mujoco" / "GoFa5" / "patched_GoFa5.urdf"
         with suppress_native_stderr():
 
             robot = Robot(
-                name="GoFa12_custom",
+                name="GoFa5_custom",
                 urdf_filepath=str(urdf_path),
                 active_joints=[
                     "joint_1","joint_2","joint_3","joint_4", "joint_5", "joint_6"
@@ -153,8 +153,8 @@ class FastIKFlowSolver:
         ckpt = (
             project_root
             / "ikflow" / "ikflow" / "weights"
-            / "GoFa12_custom--Oct.02.2025_03-56PM"
-            / "weights-epoch=29.ckpt"
+            / "GoFa5_custom--Oct.02.2025_11-25AM"
+            / "weights-epoch=49.ckpt"
         )
         lit = IkfLitModel.load_from_checkpoint(
             str(ckpt),
