@@ -18,14 +18,13 @@ Open-loop torque control + PD compensator to obtain the static equilibrium of a 
 
 Case 2) robot_motion = True ==> Move the robot to a desired configuration.
 - In this case, you do not impose an initial configuration to the robot, but the PID controller will produce the
-    torques needed to reach the desired configuration.
+  torques needed to reach the desired configuration.
 - Of course, since the trajectory is not given, the PID struggles in reaching the desired configuration, especially for joint 1.
 
-NOTE: The resolution of the inverse dynamics works perfectly. There is a minor issue:
-- if 'model.opt.timestep' is smaller than 0.0001 => no problem
-- if 'model.opt.timestep' is larger than 0.0001 => the small numerical errors sum up and the robot diverges
-- To avoid having computationally intensive simulations, set 'model.opt.timestep' to 0.002 or leave the default: you can 
-    correct the numerical errors by enabling the PD controller.
+NOTE:
+- If you *physically* apply an external Cartesian wrench via xfrc_applied, MuJoCo internally contributes J^T*(-w) to the generalized forces.
+- To counterbalance that reaction and hold static equilibrium, add +J^T*w to your commanded joint torques.
+- Make sure the applied body wrench is the COM-equivalent of the site wrench: T_com = T_site + (p_site - p_com) x F.
 '''
 
 # Append the path to 'scene_manager'
@@ -43,18 +42,21 @@ def controller(Kp, Kd, Ki, q_desired, q_current, qd_current, error_integral, dt)
     qd_error = 0.0 - qd_current
     error_integral += q_error * dt
     control_torque = Kp * q_error + Ki * error_integral + Kd * qd_error
-    return control_torque
+    return control_torque, error_integral
 
 def set_joint_configuration(data, model, desired_qpos):
     # Set the position and velocity to 0
-    data.qpos[:6] = desired_qpos.copy()
-    data.qvel[:6] = 0.0
+    data.qpos[:7] = desired_qpos.copy()
+    data.qvel[:7] = 0.0
     mujoco.mj_forward(model, data)
     data.qacc[:] = 0.0
 
 def main():
 
+    # Verify with matlab: https://www.mathworks.com/help/robotics/ref/rigidbodytree.externalforce.html
+
     # Path setup 
+    '''
     tool_filename = "screwdriver.xml"
     robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
     output_scene_filename = "final_scene.xml"
@@ -64,30 +66,35 @@ def main():
     # Create the scene
     model_path = create_scene(tool_name=tool_filename, robot_and_tool_file_name=robot_and_tool_file_name,
                               output_scene_filename=output_scene_filename, piece_name=piece_name, base_dir=base_dir)
-
+    '''
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
+    #model_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/ur5e.xml")
+    model_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/kuka/iiwa14.xml")
+    #model_path = os.path.join(base_dir, "GoFa_utils_mujoco/GoFa5/GoFa5.xml")
 
     # Variables
-    verbose = False #! Decide how verbose the code should be
-    robot_motion = False #! Instantaneous placement or motion
-    enable_control = False #! Decide whether to use the PID or go open loop
-    Kp = np.array([500, 500, 500, 150, 150, 150])
-    Kd = np.array([30, 30, 30, 30, 30, 30])
-    Ki = np.array([0, 0, 0, 0, 0, 0])
+    verbose = False           # Decide how verbose the code should be
+    robot_motion = False      # Instantaneous placement or motion
+    enable_control = False    # Decide whether to use the PID or go open loop
+    Kp = np.array([500, 500, 500, 150, 150, 150, 150])
+    Kd = np.array([30, 30, 30, 30, 30, 30, 30])
+    Ki = np.array([0, 0, 0, 0, 0, 0, 0])
 
     try:
         model = mujoco.MjModel.from_xml_path(model_path)
-        #model.opt.integrator = mujoco.mjtIntegrator.mjINT_RK4
-        model.opt.timestep = 0.0001 
+        model.opt.integrator = mujoco.mjtIntegrator.mjINT_RK4
+        #model.opt.timestep = 0.001
         data = mujoco.MjData(model)
         mujoco.mj_resetData(model, data)
 
         # Target poses for the robot
         target_qpos_list = [
-            np.radians([180, -100, 80, -90, -90, -45]),
-            #np.radians([15.99, -62.07, 121.58, -159.82, -99, -90]),
-            #np.radians([-28.83, -84.36, 102.8, 18.69, -98.83, -101.46]),
-            #np.radians([-29.77, -160.55, 110.57, -186.16, -98.81, -101.15]),
-            #np.radians([-124.35, -158.41, 147, -153.21, -155.31, -98.24])
+            #np.radians([180, -100, 80, -90, -90, -45]),
+            #np.radians([0,0,0,0,0,0]),
+            np.array([-2.293, -1.059, -2.024,  1.887, -0.105, -0.399, -2.142]),
+            #np.array([2.9064, -1.6322, -2.8301, -0.2380,  3.0534,  1.7904]),
+            #np.radians([0, 0, 45, 0, 0, 0]),
+            #np.array([0.3, -1.308, 1.214, 1.663, -4.713, -3.163])
         ]
 
         # Define bodies, geometries and sites
@@ -96,10 +103,15 @@ def main():
         tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
         screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
 
-        # Forces defined in the world frame and applied at the tool center
-        external_force_world = np.array([-2.5, -2.5, -50.0])
-        external_torque_world = np.array([-1.75, -1.75, -35.0])
-        local_wrench = np.hstack([external_force_world, external_torque_world])
+        # Always use the site's *parent body* for COM and for xfrc_applied
+        site_parent_body = model.site_bodyid[tool_site_id]
+
+        # External wrench defined in the *world* frame, applied at the tool site
+        external_force_world = np.array([0, 0, -30]) #! In terms of world coordinates 
+        external_torque_world = np.array([0.0, 0, -30])
+        site_wrench_world = np.hstack([external_force_world, external_torque_world])  # [Fx,Fy,Fz, Tx,Ty,Tz] at site
+
+        print(f"The current joints are (deg): {np.round(np.degrees(data.qpos[:7]), 2)}")
 
         with mujoco.viewer.launch_passive(model, data) as viewer:
 
@@ -111,86 +123,110 @@ def main():
                 mujoco.mj_resetData(model, data)
 
                 # Set the new robot base (matrix A^w_b)
-                _, _, A_w_b = get_homogeneous_matrix(0.5, 0.5, 0, 0, 0, 0)
+                _, _, A_w_b = get_homogeneous_matrix(0, 0, 0, 0, 0, 0)
                 set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
                 # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-                _, _, A_ee_t1 = get_homogeneous_matrix(0, 0.15, 0, 45, 0, 0)
+                _, _, A_ee_t1 = get_homogeneous_matrix(0, 0, 0, 0, 0, 0)
                 set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
-                # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
-                _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
+                # Fixed transformation 'tool top (t1) => tool tip (t)'
+                _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.0, 0, 0, 0)
 
                 # Update the position of the tool tip (Just for visualization purposes)
                 A_ee_t = A_ee_t1 @ A_t1_t
                 set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
-                if not robot_motion: # You do not want the robot to move, just set the configuration
+                if not robot_motion:  # You do not want the robot to move, just set the configuration
                     set_joint_configuration(data, model, desired_qpos)
                 else:
                     # Enable the Integral action
-                    Ki = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+                    Ki = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 
                 # Simulate for 10 seconds
                 seconds_per_config = 10.0
                 start_time = time.perf_counter()
-                last_time = start_time
-                error_integral = np.zeros(6)
+                error_integral = np.zeros(7)
+
+                mujoco.mj_forward(model, data)
+                viewer.sync()
+
+                input(f"Press enter to enable physics")
 
                 while time.perf_counter() - start_time < seconds_per_config:
                     mujoco.mj_forward(model, data)
 
-                    # Compute the integration time
-                    current_time = time.perf_counter()
-                    dt = current_time - last_time
-                    last_time = current_time
+                    # Use the simulation timestep for controller timing
+                    dt = model.opt.timestep
 
-                    # Rotate the wrench as the world
-                    R_tool_to_world = data.site_xmat[tool_site_id].reshape(3, 3) # Rotation tool => world
-                    R_world_to_tool = R_tool_to_world.T # Rotation world => tool
-                    world_wrench = get_world_wrench(R_world_to_tool, local_wrench) #! Wrench in world frame
+                    # If local wrench was provided, rotate to world; here we already have world-frame site_wrench_world
+                    # Keep this call if your utility expects tool->world conversion; otherwise, leave as is.
+                    # R_tool_to_world = data.site_xmat[tool_site_id].reshape(3, 3)
+                    # R_world_to_tool = R_tool_to_world.T
+                    world_wrench = site_wrench_world.copy()  # already world-frame at the site
 
-                    # Apply the wrench (NOTE: always expressed in the world frame)
-                    data.xfrc_applied[tool_body_id, :3] = -world_wrench[:3] 
-                    data.xfrc_applied[tool_body_id, 3:] = -world_wrench[3:]
+                    # === Apply the reaction wrench physically at the site, but written at the parent body COM ===
+                    # Site & COM positions (world)
+                    p_site = data.site_xpos[tool_site_id]
+                    p_com  = data.xipos[site_parent_body]
+                    r = p_site - p_com  # vector from COM to site (world)
 
-                    # Get the Jacobian matrix from the world frame to the tool site
+                    if verbose:
+                        print(f"r (COM->site) = {np.round(r, 4)} m")
+
+                    # Shift torque to COM:  T_com = T_site + r x F
+                    F_site = world_wrench[:3]
+                    T_site = world_wrench[3:]
+                    T_com  = T_site + np.cross(r, F_site)
+
+                    # Apply the *reaction* wrench at the parent body's COM (world-frame)
+                    data.xfrc_applied[site_parent_body, :3] = -F_site #! Applied on the body (reaction force)
+                    data.xfrc_applied[site_parent_body, 3:] = -T_com
+
+                    # === Jacobian at the site (world-frame) ===
                     jacp = np.zeros((3, model.nv))
                     jacr = np.zeros((3, model.nv))
-                    mujoco.mj_jacSite(model, data, jacp, jacr, tool_site_id) # From world to tool site
-                    J6 = np.vstack([jacp, jacr])[:, :6]
+                    mujoco.mj_jacSite(model, data, jacp, jacr, tool_site_id)  # world → site
+                    J6 = np.vstack([jacp, jacr])[:, :7]
 
-                    # Compute the total torque needed to stabilize the robot                   
-                    tau_ext = J6.T @ world_wrench
-                    gravity_comp = data.qfrc_bias[:6]
-                    control_torque = controller(Kp, Kd, Ki, desired_qpos, data.qpos[:6], data.qvel[:6], error_integral, dt)
+                    # === Joint torques: gravity/Coriolis + counter torque + optional PD ===
+                    tau_ext = J6.T @ world_wrench                # +J^T w to counterbalance the reaction
+                    gravity_comp = data.qfrc_bias[:7]            # C(q,qdot) qdot + G(q); at qdot=0 it's just gravity
+                    ctrl_torque, error_integral = controller(
+                        Kp, Kd, Ki, desired_qpos, data.qpos[:7], data.qvel[:7], error_integral, dt
+                    )
 
                     if enable_control:
-                        data.ctrl[:6] = gravity_comp + tau_ext + control_torque # ! Apply the control torque
+                        data.ctrl[:7] = gravity_comp + tau_ext + ctrl_torque
                     else:
-                        data.ctrl[:6] = gravity_comp + tau_ext
+                        data.ctrl[:7] = gravity_comp + tau_ext #! If the world wrench is considered
 
                     # Debugging
                     if verbose:
-                        print(f"The torque due to gravity is: {np.round(gravity_comp, 2)}")
-                        print(f"The torque due to the external action is: {np.round(tau_ext, 2)}")
-                        #print(f"The PD torque is: {np.round(control_torque, 2)}")
-                        print("Total torque applied to the joints:", np.round(data.ctrl[:6], 2))
-                        print("Actual applied torques:", data.qfrc_actuator[:6])
-
+                        print(f"tau_grav: {np.round(gravity_comp, 2)}")
+                        print(f"tau_ext (J^T w): {np.round(tau_ext, 2)}")
+                        if enable_control:
+                            print(f"tau_PD: {np.round(ctrl_torque, 2)}")
+                        print("ctrl:", np.round(data.ctrl[:7], 2))
+                        print("qfrc_actuator:", np.round(data.qfrc_actuator[:7], 2))
 
                     mujoco.mj_step(model, data)
                     viewer.sync()
+
+                    # Keep loop pacing roughly aligned with sim time (optional)
                     time.sleep(model.opt.timestep)
-                    data.xfrc_applied[tool_body_id, :] = 0.0
+
+                    # Clear xfrc_applied so we reapply explicitly each loop
+                    data.xfrc_applied[site_parent_body, :] = 0.0
 
                 # Final prints
-                print(f"The torque due to gravity is: {np.round(gravity_comp, 2)}")
-                print(f"The torque due to the external action is: {np.round(tau_ext, 2)}")
-                #print(f"The PD torque is: {np.round(control_torque, 2)}")
-                print("Total torque applied to the joints:", np.round(data.ctrl[:6], 2))
-                print("Actual applied torques:", data.qfrc_actuator[:6])
-                print("Final joint angles (deg):", np.round(np.degrees(data.qpos[:6]), 2))
+                print(f"tau_gravity: {np.round(gravity_comp, 2)}")
+                print(f"tau_ext (J^T w): {np.round(tau_ext, 2)}")
+                if enable_control:
+                    print(f"Final PD torque (last): {np.round(ctrl_torque, 2)}")
+                print("Total commanded torque:", np.round(data.ctrl[:7], 2))
+                print("Applied actuator torques:", np.round(data.qfrc_actuator[:7], 2))
+                print("Final joint angles (deg):", np.round(np.degrees(data.qpos[:7]), 2))
 
             print("\n--- Finished all configurations. ---")
             input("Press Enter to close the viewer and exit...")

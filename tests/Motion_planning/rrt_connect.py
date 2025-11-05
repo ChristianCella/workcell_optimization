@@ -693,8 +693,8 @@ if __name__ == "__main__":
         # Launch the MuJoCo viewer
         with mujoco.viewer.launch_passive(model, data) as viewer:
 
-            viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
-            viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
+            #viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
+            #viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
             #viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_TEXTURE] = True
             #viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_FLAT] = 0
             viewer.sync()  # apply user_scn changes to the render pipeline

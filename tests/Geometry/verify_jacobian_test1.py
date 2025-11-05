@@ -4,6 +4,15 @@ import os, sys
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
+''' 
+First test: suppose to start from the Jacobian from base to ee, expressed in base frame.
+Well, in mujoco, this can be computed as Ad(inv(A^w_b)) * J^{w}_{b->ee}, since the API gives J^{w}_{b->ee}.
+Then, to compute the Jacobian from base to tool (a point offset from ee), expressed in world frame, we do:
+1) Change expression frame from base to world: J^{w}_{b->ee} = Ad(A^w_b) * J^{b}_{b->ee}
+2) Point shift from ee to tool: J^{w}_{b->t} = X^{w}_{t<-ee} * J^{w}_{b->ee} (with {t<-ee} meaning "shift from ee to tool")
+Finally, wwe verify we obtain the same result as the API call J^{w}_{b->t}.
+'''
+
 # ---------- helpers for v–ω ordering ([v; ω]) ----------
 
 def rot_from_xmat(xmat_flat):

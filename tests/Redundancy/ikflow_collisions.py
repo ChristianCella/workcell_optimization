@@ -75,7 +75,7 @@ def main():
 
     # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
     t_ee_t1 = np.array([0, 0.15, 0]) # 0, 0.15, 0
-    R_ee_t1 = R.from_euler('XYZ', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix() # 30, 0, 0
+    R_ee_t1 = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix() # 30, 0, 0
     A_ee_t1 = np.eye(4)
     A_ee_t1[:3, 3] = t_ee_t1
     A_ee_t1[:3, :3] = R_ee_t1
@@ -95,7 +95,7 @@ def main():
     # Piece in the world (define A^w_p) => this is also used to put the frame in space  
     theta_w_p_x_0 = np.radians(180)
     theta_w_p_y_0 = np.radians(0)
-    theta_w_p_z_0 = np.radians(45)
+    theta_w_p_z_0 = np.radians(0)
     t_w_p = np.array([0.4, 0.4, 0.4]) # [0.2, 0.2, 0.2]
     R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
     A_w_p = np.eye(4)
