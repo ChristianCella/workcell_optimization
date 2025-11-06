@@ -1,25 +1,29 @@
-# Layout optimization - ARTO project 🤖🪛➡️
+# Layout optimization - ARTO project 🤖🕹️✈️
 This work allows to optimize a robotic workcell, regardless of the robot, the position of the workpiece and the number of target locations. This branch contains only the codes for the ARTO project, developed with TXT e-solutions.
 
 ---
 
-### **Requirements and OS** 🪟 <a name="Requirements"></a>
+### **Requirements and OS** 🐧💻 <a name="Requirements"></a>
 The work is meant to be python-based, without the necessity to be enclosed in a ROS/ROS2 framework. The suggested requirements are:
-- ❇️ Ubuntu 22.04 (tested also on Ubuntu 20.04 and Windows 11)
-- ❇️ Python 3.10.0 (newer versions have not been tested yet)
-- ❇️ VSCode or PyCharm (tested on VSCode)
+- Ubuntu 22.04 (tested also on Ubuntu 20.04 and Windows 11)
+- Python 3.10.0 (newer versions have not been tested yet)
 
 ---
 
-### **Project structure** 🏗️ <a name="Structure"></a> 
+### **Project structure** 🗂️ <a name="Structure"></a> 
 This project relies on utilities for mujoco ([link](https://github.com/ChristianCella/ur5e_utils_mujoco.git)) and an IK solver ([link](https://github.com/ChristianCella/ikflow.git)), as depicted in the following:
+
 ```
+├── ikflow/       # Normalizing flow for Inverse Kinematics
+├── TuRBO/       # Package for Bayesian Optimization
 ├── ur5e_utils_mujoco/           # utilities for mujoco and ikflow 
     ├── ...
-    ├── ur5e.xml
-    ├── ur5e.urdf
-├── workcell_optimization/       # this package (explained in the following)
-└── ikflow/                      # normalizing flow for inverse kinematics   
+    ├── simple_obstacles/
+    ├── ur5e/
+        ├── ...
+        ├── ur5e.xml
+        ├── ur5e.urdf
+└── workcell_optimization/       # Shared package to optimize robotic applications  
 ```
 
 ---
@@ -30,11 +34,11 @@ Create a folder (for example 'robotic_conatct_operations') and place in it all t
 
 ```
 git clone https://github.com/ChristianCella/workcell_optimization.git
-git clone https://github.com/ChristianCella/ur5e_utils_mujoco.git
 git clone https://github.com/ChristianCella/ikflow.git
+git clone https://github.com/ChristianCella/ur5e_utils_mujoco.git
 git clone https://github.com/ChristianCella/TuRBO.git
 ```
-- #### **Workcell optimization apckage** ▶️ <a name="workcell_optimization_package"></a> 
+- #### **Workcell optimization package** 📈 <a name="workcell_optimization_package"></a> 
     open a terminal in the directory ```../workcell_optimization``` and create a virtual environment called ```.venv```:
 
     ```
@@ -44,7 +48,7 @@ git clone https://github.com/ChristianCella/TuRBO.git
     ```
     NOTE: Be sure to have all the required packages (CUDA in particular. If some problems arise, look at the Troubleshooting section).
 
-- #### **Ikflow** ▶️ <a name="ikflow"></a> 
+- #### **Ikflow** 🦿 <a name="ikflow"></a> 
 
     Now, go to the directory of ikflow (from ```../workcell_optimization```, just do ```cd..``` and then ```cd ikflow```) and follow these steps:
 
@@ -58,11 +62,11 @@ git clone https://github.com/ChristianCella/TuRBO.git
     ```
     NOTE: switch to the branch ```txt_arto``` for this package. Inside ```ikflow```, another folder with the same name is present. Inside this one, manually create a folder called ```weights```, and copy in it the learned weights for the ur5e robot.
 
-- #### **Mujoco utilities for the ur5e robot** ▶️ <a name="ur5e_mujoco"></a> 
-    No specific recommmendation for this package.
+- #### **Mujoco utilities for the ur5e robot** ⚙️ <a name="ur5e_mujoco"></a> 
+    No specific recommmendation for this package. This is a custom version of the original repository [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie), that only focuses on the ur5e robot. Despite not mandatory, switch on the branch ```txt_arto``` also for this package.
 
-- #### **Bayesian optimization with TuRBO** ▶️ <a name="turbo_bayesian"></a> 
-    No specific recommmendation for this package.
+- #### **Bayesian optimization with TuRBO** 🧠 <a name="turbo_bayesian"></a> 
+    No specific recommmendation for this package. The repository linked above is a fork of [this](https://github.com/uber-research/TuRBO) package. Despite not mandatory, switch on the branch ```txt_arto``` also for this package.
 ---
 
 ### **Troubleshooting** 🛠️ <a name="Troubleshooting"></a> 
