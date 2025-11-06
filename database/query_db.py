@@ -5,7 +5,7 @@ DB_CONFIG = {
     'port': 3306,
     'user': 'user',
     'password': 'Robotics.123456',
-    'database': 'ARTO'
+    'database': 'new_schema'
 }
 
 def get_atomic_by_name(atomic_name):
