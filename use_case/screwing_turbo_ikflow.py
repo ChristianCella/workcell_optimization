@@ -439,10 +439,10 @@ if __name__ == "__main__":
     save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
   
     local_wrenches = [
-        (np.array([0, 0, -30, 0, 0, -20])),
-        (np.array([0, 0, -30, 0, 0, -20])),
-        (np.array([0, 0, -30, 0, 0, -20])),
-        (np.array([0, 0, -30, 0, 0, -20])),
+        (np.array([0, 0, 30, 0, 0, 20])),
+        (np.array([0, 0, 30, 0, 0, 20])),
+        (np.array([0, 0, 30, 0, 0, 20])),
+        (np.array([0, 0, 30, 0, 0, 20])),
     ]
     
   
@@ -469,11 +469,11 @@ if __name__ == "__main__":
      ----------------------------Parameters for TuRBO-m--------------------------------
     '''
     
-    batch_size = 40
-    n_desired_iterations = 100
-    n_trust_regions = 20 
-    n_training_steps = 50 
-    n_init = 100
+    batch_size = 3
+    n_desired_iterations = 2
+    n_trust_regions = 2
+    n_training_steps = 50
+    n_init = 5
     max_evals = n_trust_regions * n_init + n_desired_iterations * batch_size    
     use_ard = False #! Automatic relevance determination 
     verbose_turbo = True
@@ -780,13 +780,13 @@ if __name__ == "__main__":
 
     # ---------------- Persist results to CSV ----------------
     df_fit = pd.DataFrame(best_fitness_trend, columns=["fitness"])
-    df_fit.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"fitness_fL.csv"), index=False)
+    df_fit.to_csv(os.path.join(save_dir, "results", f"{parameters.csv_directory}", f"fitness_fL.csv"), index=False)
 
     df_fit = pd.DataFrame(best_fitnesses_tau_trend, columns=["fitness"])
-    df_fit.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"Primary_leader.csv"), index=False)
+    df_fit.to_csv(os.path.join(save_dir, "results", f"{parameters.csv_directory}", f"Primary_leader.csv"), index=False)
 
     df_fit = pd.DataFrame(best_fitnesses_path_trend, columns=["fitness"])
-    df_fit.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"Secondary_leader.csv"), index=False)
+    df_fit.to_csv(os.path.join(save_dir, "results", f"{parameters.csv_directory}", f"Secondary_leader.csv"), index=False)
 
         # Follower problems scalarized trend
     n_pieces = len(best_secondary_fit_trend[0])
@@ -795,7 +795,7 @@ if __name__ == "__main__":
     df = pd.DataFrame(best_secondary_fit_trend, columns=cols)
     df.insert(0, "generation", range(len(best_secondary_fit_trend)))  # optional but handy
 
-    out_dir = os.path.join(save_dir, "results", "data")
+    out_dir = os.path.join(save_dir, "results")
     os.makedirs(out_dir, exist_ok=True)
     df.to_csv(os.path.join(out_dir, f"{parameters.csv_directory}", f"fitness_followers.csv"), index=False)
 
@@ -806,7 +806,7 @@ if __name__ == "__main__":
     df = pd.DataFrame(best_manip_trend, columns=cols)
     df.insert(0, "generation", range(len(best_manip_trend)))  # optional but handy
 
-    out_dir = os.path.join(save_dir, "results", "data")
+    out_dir = os.path.join(save_dir, "results")
     os.makedirs(out_dir, exist_ok=True)
     df.to_csv(os.path.join(out_dir, f"{parameters.csv_directory}", f"best_primary_followers.csv"), index=False)
 
@@ -817,7 +817,7 @@ if __name__ == "__main__":
     df = pd.DataFrame(best_range_trend, columns=cols)
     df.insert(0, "generation", range(len(best_range_trend)))  # optional but handy
 
-    out_dir = os.path.join(save_dir, "results", "data")
+    out_dir = os.path.join(save_dir, "results")
     os.makedirs(out_dir, exist_ok=True)
     df.to_csv(os.path.join(out_dir, f"{parameters.csv_directory}", f"best_secondary_followers.csv"), index=False)
 
@@ -838,7 +838,7 @@ if __name__ == "__main__":
             columns = [f"piece{p+1}_joint{j+1}" for p in range(n_pieces) for j in range(n_joints)]
 
             df = pd.DataFrame(flat_rows, columns=columns)
-            df.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", filename), index=False)
+            df.to_csv(os.path.join(save_dir, "results", f"{parameters.csv_directory}", filename), index=False)
 
     save_trend_wide(complete_alpha_trend, f"complete_alpha_trend_wide.csv")
     save_trend_wide(complete_beta_trend, f"complete_beta_trend_wide.csv")
@@ -847,7 +847,7 @@ if __name__ == "__main__":
         # Save the list of indices
     df_best = pd.DataFrame({"generation": range(len(best_individual_idx)),
                         "best_individual": best_individual_idx})
-    df_best.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"best_individuals_indices.csv"), index=False)
+    df_best.to_csv(os.path.join(save_dir, "results", f"{parameters.csv_directory}", f"best_individuals_indices.csv"), index=False)
 
 
         # Flatten the best_gravity_trend into rows: [generation, individual, tau1, ..., tau6]
@@ -875,7 +875,7 @@ if __name__ == "__main__":
     columns_grav = [f"tau_g_piece{p}_{j+1}" for p in range(n_pieces) for j in range(n_joints)]
 
     df_gravity = pd.DataFrame(flat_gravity, columns=columns_grav)
-    df_gravity.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"best_gravity_torques.csv"), index=False)
+    df_gravity.to_csv(os.path.join(save_dir, "results", f"{parameters.csv_directory}", f"best_gravity_torques.csv"), index=False)
 
         # ---- External Torques ----
     flat_external = []
@@ -888,11 +888,11 @@ if __name__ == "__main__":
     columns_ext = [f"tau_ext_piece{p}_{j+1}" for p in range(n_pieces) for j in range(n_joints)]
 
     df_external = pd.DataFrame(flat_external, columns=columns_ext)
-    df_external.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"best_external_torques.csv"), index=False)
+    df_external.to_csv(os.path.join(save_dir, "results", f"{parameters.csv_directory}", f"best_external_torques.csv"), index=False)
 
         # Best configuration trend
     df_x = pd.DataFrame(best_solutions, columns=["x_b", "y_b", "theta_x_b", "x_t", "y_t", "theta_x_t", "x_p", "y_p", "q01", "q02", "q03", "q04", "q05", "q06"])
-    df_x.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"best_solutions.csv"), index=False)
+    df_x.to_csv(os.path.join(save_dir, "results", f"{parameters.csv_directory}", f"best_solutions.csv"), index=False)
 
         # Status of each individual in each generation
     stringified_status = [
@@ -901,13 +901,13 @@ if __name__ == "__main__":
         ]
     popsize_string = len(stringified_status[0])
     df_status = pd.DataFrame(stringified_status, columns=[f"ind_{i}" for i in range(popsize_string)])
-    df_status.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}", f"simulation_status.csv"), index=False)
+    df_status.to_csv(os.path.join(save_dir, "results", f"{parameters.csv_directory}", f"simulation_status.csv"), index=False)
 
     # Save the best configurations (one row per batch, one column per piece)
     if best_configs_trend:
      df_configs = pd.DataFrame(best_configs_trend,
                               columns=[f"config_{i}" for i in range(len(best_configs_trend[0]))])
-     df_configs.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}",
+     df_configs.to_csv(os.path.join(save_dir, "results", f"{parameters.csv_directory}",
                                    f"best_configs.csv"),
                       index=False)
     else:
@@ -915,7 +915,7 @@ if __name__ == "__main__":
 
 # Save the total optimization time (in seconds)
     df_time = pd.DataFrame([[elapsed_s]], columns=["total_time"])
-    df_time.to_csv(os.path.join(save_dir, "results/data", f"{parameters.csv_directory}",
+    df_time.to_csv(os.path.join(save_dir, "results", f"{parameters.csv_directory}",
                             f"total_time.csv"),
                index=False)
 
