@@ -5,7 +5,7 @@ DB_CONFIG = {
     'port': 3306,
     'user': 'user',
     'password': 'Robotics.123456',
-    'database': 'ARTO'
+    'database': 'Frames_data_arto'
 }
 
 def get_atomic_by_name(atomic_name):
@@ -58,7 +58,37 @@ def get_panel_pose(panel_name):
     panel_pose = result[0].strip('{}')
     return panel_pose
 
+def get_tcp_frame(frame_id):
+    conn = mariadb.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    query = """SELECT tcp_frame, tcp_wrench, tool_id FROM robot_actions_list WHERE id = %s"""
+    cursor.execute(query, (frame_id,))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not result:
+        raise ValueError(f"No frame found with id: {frame_id}")
+
+    # Get the tcp_frame Cartesian coordinates
+    tcp_frame = result[0].strip('{}')
+    frame_values = [float(x) for x in tcp_frame.split(',')]
+    if len(frame_values) != 7:
+        raise ValueError(f"Invalid tcp_frame size for id: {frame_id}")
+    
+    # Get the wrench for the target
+    if result[1] is None:
+        wrench_values = result[1]
+    else:
+        tcp_wrench = result[1].strip('{}')
+        wrench_values = [float(x) for x in tcp_wrench.split(',')]
+
+    # Get the tool ID
+    tool_id = result[2]
+    return frame_values, wrench_values, tool_id
+
 if __name__ == "__main__":
+    '''
     atomic_name = "MRfcuappr" # Row 4 of the table 'robotic_atomics'
     # Example execution
     try:
@@ -70,5 +100,11 @@ if __name__ == "__main__":
         print(f"Panel Pose wrt robot: {panel_pose}")
     except Exception as e:
         print(f"Error: {e}")
+    '''
+    tcp_frame, wrench_values, tool_id = get_tcp_frame("2")
+    print(f"TCP Frame: {tcp_frame}\n")
+    print(f"Wrench Values: {wrench_values}\n")
+    print(f"Tool ID: {tool_id}\n")
+
 
 

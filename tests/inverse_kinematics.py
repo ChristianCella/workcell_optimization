@@ -13,11 +13,15 @@ from scipy.spatial.transform import Rotation as R
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
 import fonts
-from transformations import rotm_to_quaternion, get_homogeneous_matrix
+from transformations import rotm_to_quaternion, get_homogeneous_matrix, quaternion_to_euler
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 from constant_parameters import TestIkFlow
 params = TestIkFlow()
+
+database_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../database'))
+sys.path.append(database_dir)
+from query_db import get_tcp_frame
 
 def main():
 
@@ -37,30 +41,34 @@ def main():
     tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_tip")
     wrist_3_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "wrist_3_link")
 
+    #! Piece in the world (define A^w_p) => Database
+    tcp_frame, wrench_values, tool_id = get_tcp_frame("16")
+    q_frame = [tcp_frame[3], tcp_frame[4], tcp_frame[5], tcp_frame[6]] 
+    theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 = quaternion_to_euler(q_frame, degrees=True)
+    t_w_p = np.array([tcp_frame[0], tcp_frame[1], tcp_frame[2]])
+    R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
+    A_w_p = np.eye(4)
+    A_w_p[:3, 3] = t_w_p
+    A_w_p[:3, :3] = R_w_p
+
     # Set robot base (matrix A^w_b)
     _, _, A_w_b = get_homogeneous_matrix(0.2, 0.2, 0.2, 0, 0, 0)
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the base of the tool with respect to the flange
-    _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.1, 0.0, 30, 0, 0)
+    _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
     set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
     # Fixed transformation 'tool base (t1) => tool tip (t)'
-    _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
+    if tool_id == "gripper_hande":
+        gripper_length = 0.14
+    else:   
+        gripper_length = 0.2
+    _, _, A_t1_t = get_homogeneous_matrix(0, 0, gripper_length, 0, 0, 0)
 
     # Update the position of the tool tip (Just for visualization purposes)
     A_ee_t = A_ee_t1 @ A_t1_t  # combine the two transformations
     set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
-
-    # Piece in the world (define A^w_p) => this is also used to put the frame in space  
-    theta_w_p_x_0 = np.radians(180)
-    theta_w_p_y_0 = np.radians(0)
-    theta_w_p_z_0 = np.radians(0)
-    t_w_p = np.array([0.4, 0.4, 0.4]) # [0.2, 0.2, 0.2]
-    R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
-    A_w_p = np.eye(4)
-    A_w_p[:3, 3] = t_w_p
-    A_w_p[:3, :3] = R_w_p
 
     # End-effector with respect to wrist3
     t_wl3_ee = np.array([0, 0.1, 0])

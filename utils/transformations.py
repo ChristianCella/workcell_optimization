@@ -7,6 +7,18 @@ def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     q = r.as_quat()
     return [q[3], q[0], q[1], q[2]]  # [w, x, y, z]
 
+def quaternion_to_euler(q, degrees=False):
+    from scipy.spatial.transform import Rotation as R
+
+    # Convert [w, x, y, z] → [x, y, z, w] for scipy
+    quat_scipy = [q[1], q[2], q[3], q[0]]
+
+    r = R.from_quat(quat_scipy)
+    roll, pitch, yaw = r.as_euler('XYZ', degrees=degrees)
+
+    return roll, pitch, yaw
+
+
 def rotm_to_quaternion(rotm):
     from scipy.spatial.transform import Rotation as R
     q = R.from_matrix(rotm).as_quat()
@@ -31,10 +43,15 @@ if __name__ == "__main__":
 
     #* Test the passage from Euler angles to quaternion
     theta_x = -90
-    theta_y = 0
-    theta_z = 0
+    theta_y = 76
+    theta_z = 12
     q = euler_to_quaternion(theta_x, theta_y, theta_z, degrees=True)
     print("Quaternion: ", q)
+
+    #* Test the passage from quaternion to Euler angles
+    q = [0.995356, -0.0100045, -0.0877808, -0.0382305]
+    roll, pitch, yaw = quaternion_to_euler(q, degrees=True)
+    print(f"Euler angles: Roll: {roll}, Pitch: {pitch}, Yaw: {yaw}")
 
     # External wrench in the local frame of the target
     wrench_local = np.array([0, 0, -30, 0, 0, -10])  # Fx, Fy, Fz, Mx, My, Mz
