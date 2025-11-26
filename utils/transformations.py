@@ -26,9 +26,31 @@ def get_homogeneous_matrix(tx, ty, tz, rx, ry, rz):
     A_mat[:3, :3] = R_mat
     return t_vec, R_mat, A_mat
 
+# Test the methods
 if __name__ == "__main__":
+
+    #* Test the passage from Euler angles to quaternion
     theta_x = -90
     theta_y = 0
     theta_z = 0
     q = euler_to_quaternion(theta_x, theta_y, theta_z, degrees=True)
-    print("Quaternion:", q)
+    print("Quaternion: ", q)
+
+    # External wrench in the local frame of the target
+    wrench_local = np.array([0, 0, -30, 0, 0, -10])  # Fx, Fy, Fz, Mx, My, Mz
+
+    # Local frame with respect to the world frame
+    euler_angles = np.radians([180, 45, 0])
+    R_l_w = R.from_euler('XYZ', euler_angles).as_matrix() #! Remember: specify 'XYZ' to work with intrinsic rotations
+    print("\nLocal rotation, using scipy method:\n", R_l_w)
+
+    # NOTE: check the rotation matrix
+    rx = R.from_euler('x', 180, degrees=True)
+    ry = R.from_euler('y', 45, degrees=True)
+    rz = R.from_euler('z', 0, degrees=True)
+    R_l_w_check = rx * ry * rz
+    print("\nLocal rotation, computed by hand:\n", R_l_w_check.as_matrix())
+
+    # Wrench in the world frame
+    F_world = get_world_wrench(R_l_w, wrench_local)  # This function returns the wrench in the world frame
+    print("\nForce in world frame:", F_world)

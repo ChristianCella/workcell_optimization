@@ -8,6 +8,8 @@ The work is meant to be python-based, without the necessity to be enclosed in a 
 - Ubuntu 22.04 (tested also on Ubuntu 20.04 and Windows 11)
 - Python 3.10.0 (newer versions have not been tested yet)
 
+To better visualize the code, we highly recommend the free extension 'better comments'.
+
 ---
 
 ### **Project structure** 🗂️ <a name="Structure"></a> 

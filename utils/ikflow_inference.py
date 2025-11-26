@@ -5,12 +5,6 @@ import time
 from contextlib import redirect_stderr
 import contextlib
 
-''' 
-This code is an improvement of 'inference_single_pose.py' for two reasons:
-    1. It allows to test the network on multiple poses in parallel, which is much faster.
-    2. It allows to test the network on a rotational sweep of a base pose, which is useful for testing the task redundancy resolution.
-'''
-
 # Specify the path for ikflow
 script_path  = Path(__file__).resolve()
 project_root = script_path.parents[2]
@@ -54,6 +48,7 @@ def suppress_native_stderr():
 def quat_to_mat(quat: torch.Tensor) -> torch.Tensor:
     """
     Convert quaternion(s) (w,x,y,z) → rotation matrix/matrices on GPU.
+    This is a way to speed up computations.
     """
     quat = quat / quat.norm(dim=-1, keepdim=True).clamp(min=1e-12)
     w, x, y, z = quat.unbind(-1)
@@ -87,7 +82,7 @@ class FastIKFlowSolver:
             torch.backends.cudnn.deterministic = False
 
         # robot
-        urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e" / "ur5e.urdf"
+        urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e.urdf"
         with suppress_native_stderr():
 
             robot = Robot(

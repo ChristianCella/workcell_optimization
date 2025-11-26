@@ -6,12 +6,8 @@ import math
 import time
 from dataclasses import dataclass
 
-# Append the path to 'scene_manager'
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../scene_manager')))
-from create_scene import create_scene
-
 # Append the path to 'utils'
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../utils')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils')))
 from transformations import rotm_to_quaternion, get_homogeneous_matrix
 from mujoco_utils import set_body_pose
 
@@ -543,7 +539,6 @@ def color_by_index(i, total=None, alpha=1.0):
     return (r, g, b, alpha)
 
 
-
 #! Test code
 if __name__ == "__main__":
 
@@ -552,16 +547,9 @@ if __name__ == "__main__":
     n_pieces = 4
 
     # Path setup 
-    tool_filename = "screwdriver.xml"
-    robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
-    output_scene_filename = "final_scene.xml"
-    piece_name = "table_grip.xml" 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     sys.path.append(base_dir)
-
-    # Create the xml scene
-    XML_PATH = create_scene(tool_name=tool_filename, robot_and_tool_file_name=robot_and_tool_file_name,
-                              output_scene_filename=output_scene_filename, piece_name=piece_name, base_dir=base_dir)
+    XML_PATH = os.path.join(base_dir, "ur5e_utils_mujoco/environment.xml")
 
     # Load model and create data
     model = mujoco.MjModel.from_xml_path(XML_PATH)
@@ -594,15 +582,10 @@ if __name__ == "__main__":
 
     # Get body/site IDs
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
-    tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
-    piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "table_grip")
-    ref_body_ids = []
-    for i in range(model.nbody):
-        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)
-        if name and name.startswith("hole_") and name.endswith("_frame_body"):
-            ref_body_ids.append(i)
-    tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
-    screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
+    tool_base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_base")
+    tool_base_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_base_site")
+    tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_tip")
+    tool_tip_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_tip_site")
 
     # Collision checker
     cc = MuJoCoCollisionChecker(model, base_qpos=base_qpos, joint_ids=plan_joint_ids)
@@ -619,20 +602,16 @@ if __name__ == "__main__":
     _, _, A_w_b = get_homogeneous_matrix(0.4873, -0.19549, 0.1, np.degrees(-0.6421), 0, 0)
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
-    # Set the piece in the environment (matrix A^w_p)
-    _, _, A_w_p = get_homogeneous_matrix(-0.00698421, -0.04174008, 0, 0, 0, 0)
-    set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
-
-    # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-    _, _, A_ee_t1 = get_homogeneous_matrix(0.09105138, 0.06823934, 0.03, np.degrees(0.63059139), 0, 0)
-    set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
+    # Set the base of the tool with respect to the flange
+    _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.1, 0.0, 30, 0, 0)
+    set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
     # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
     _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
 
     # Update the position of the tool tip (Just for visualization purposes)
     A_ee_t = A_ee_t1 @ A_t1_t
-    set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
+    set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
     # End-effector with respect to wrist3 (NOTE: this is always fixed)
     _, _, A_wl3_ee = get_homogeneous_matrix(0, 0.1, 0, -90, 0, 0)
@@ -653,11 +632,12 @@ if __name__ == "__main__":
     all_markers = []
     all_paths = []
 
-    # Tests a for loop
-    for i in range(n_pieces + 1): # 0, 1, 2, 3, 4
+    # Loop through all the target locations 
+    for i in range(n_pieces + 1): 
         k = i + 1
         if i == n_pieces:
             k = 0
+
         # Define start and goal
         q_start = clamp_to_limits(q_vec[i], jnt_range)
         q_goal  = clamp_to_limits(q_vec[k], jnt_range)
@@ -668,7 +648,7 @@ if __name__ == "__main__":
 
         path, stats = planner.plan(q_start, q_goal, time_budget_s=5.0)
 
-        # Enforce the path to be start -> goal
+        # Enforce the path to be start -> goal (and not the opposite)
         if np.linalg.norm(path[0] - q_start) > np.linalg.norm(path[-1] - q_start):
             path.reverse()
 
@@ -682,23 +662,18 @@ if __name__ == "__main__":
 
         # --- after path_uniform is computed ---
         path_vis10 = resample_to_count(path_pruned, 10, weights=weights, revolute_mask=revolute_mask)
-        marker_positions = [ee_pos_world(cc, q, tool_site_id) for q in path_vis10]
+        marker_positions = [ee_pos_world(cc, q, tool_tip_site_id) for q in path_vis10]
         all_markers.append(marker_positions)
 
         # Compute the path length
-        L_ee_simple = workspace_length_simple(cc, path_uniform, site_id=tool_site_id)
+        L_ee_simple = workspace_length_simple(cc, path_uniform, site_id=tool_tip_site_id)
         print(f"Path {i} length (simple): {L_ee_simple:.4f} m")
 
     if display_gui:
         # Launch the MuJoCo viewer
         with mujoco.viewer.launch_passive(model, data) as viewer:
 
-            #viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
-            #viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
-            #viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_TEXTURE] = True
-            #viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_FLAT] = 0
-            viewer.sync()  # apply user_scn changes to the render pipeline
-
+            viewer.sync() 
 
             for i in range(n_pieces + 1): # Loop over all the screws
 
