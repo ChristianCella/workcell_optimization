@@ -239,20 +239,10 @@ if __name__ == "__main__":
     # Load and render
     model = mujoco.MjModel.from_xml_path(model_path)
     data = mujoco.MjData(model)
-    try:
-        with mujoco.viewer.launch_passive(model, data) as viewer:
-            print("Press ESC or Ctrl+C to exit the viewer.")
-            while viewer.is_running():
-                viewer.sync()
-    finally:
-        # Cleanup always runs
-        for path in [merged_robot_path, merged_scene_path, model_path]:
-            path = os.path.normpath(path)
-            if os.path.exists(path):
-                try:
-                    os.remove(path)
-                    print(f"Deleted temporary file: {path}")
-                except Exception as e:
-                    print(f"Could not delete {path}: {e}")
-            else:
-                print(f"File does not exist: {path}")
+
+    with mujoco.viewer.launch_passive(model, data) as viewer:
+        mujoco.mj_forward(model, data)
+        viewer.sync()
+        input("Press Enter to continue...")
+
+        
