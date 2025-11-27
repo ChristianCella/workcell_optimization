@@ -43,8 +43,9 @@ def main():
 
     #! Piece in the world (define A^w_p) => Database
     tcp_frame, wrench_values, tool_id = get_tcp_frame("16")
-    q_frame = [tcp_frame[3], tcp_frame[4], tcp_frame[5], tcp_frame[6]] 
-    theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 = quaternion_to_euler(q_frame, degrees=True)
+    q_frame = [tcp_frame[6], tcp_frame[3], tcp_frame[4], tcp_frame[5]] 
+    theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 = quaternion_to_euler(q_frame, degrees=False)
+    print(f"The angles are: {theta_w_p_x_0}, {theta_w_p_y_0}, {theta_w_p_z_0}")
     t_w_p = np.array([tcp_frame[0], tcp_frame[1], tcp_frame[2]])
     R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
     A_w_p = np.eye(4)
@@ -52,7 +53,7 @@ def main():
     A_w_p[:3, :3] = R_w_p
 
     # Set robot base (matrix A^w_b)
-    _, _, A_w_b = get_homogeneous_matrix(0.2, 0.2, 0.2, 0, 0, 0)
+    _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the base of the tool with respect to the flange

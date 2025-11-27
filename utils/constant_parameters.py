@@ -3,10 +3,10 @@ import numpy as np
 
 @dataclass
 class TestIkFlow:
-    verbose: bool = True
+    verbose: bool = False
     N_samples: int = 30  # Samples per 'discretized' pose configuration
     N_disc: int = 10  # Number of discrete configurations to test (rotational sweep)
-    show_pose_duration: int = 0.5  # Seconds to show each pose
+    show_pose_duration: int = 0.1  # Seconds to show each pose
 
 @dataclass
 class OptimizationParameters:

@@ -49,7 +49,7 @@ if __name__ == "__main__":
     print("Quaternion: ", q)
 
     #* Test the passage from quaternion to Euler angles
-    q = [0.995356, -0.0100045, -0.0877808, -0.0382305]
+    q = [-0.0226209, 0.978332,-0.0296377,-0.203658]
     roll, pitch, yaw = quaternion_to_euler(q, degrees=True)
     print(f"Euler angles: Roll: {roll}, Pitch: {pitch}, Yaw: {yaw}")
 
