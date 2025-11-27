@@ -27,7 +27,7 @@ def main():
 
     # Path setup 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-    model_path = os.path.join(base_dir, "ur5e_utils_mujoco/environment.xml")
+    model_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene_ur5e.xml")
 
     # Load MuJoCo model
     model = mujoco.MjModel.from_xml_path(str(model_path))

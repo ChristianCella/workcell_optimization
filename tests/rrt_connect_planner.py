@@ -549,7 +549,7 @@ if __name__ == "__main__":
     # Path setup 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     sys.path.append(base_dir)
-    XML_PATH = os.path.join(base_dir, "ur5e_utils_mujoco/environment.xml")
+    XML_PATH = os.path.join(base_dir, "ur5e_utils_mujoco/scene_ur5e.xml")
 
     # Load model and create data
     model = mujoco.MjModel.from_xml_path(XML_PATH)
