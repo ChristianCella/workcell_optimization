@@ -13,7 +13,7 @@ from scipy.spatial.transform import Rotation as R
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
 import fonts
-from transformations import rotm_to_quaternion, get_homogeneous_matrix
+from transformations import rotm_to_quaternion, get_homogeneous_matrix, get_cartesian_pose
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability
 from constant_parameters import TestIkFlow
 params = TestIkFlow()
@@ -22,7 +22,7 @@ def main():
 
     # Path setup 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-    model_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene_ur5e.xml")
+    model_path = os.path.join(base_dir, "ur5e_utils_mujoco/bringup_ur5e.xml")
 
     # Load MuJoCo model
     model = mujoco.MjModel.from_xml_path(str(model_path))
@@ -44,11 +44,8 @@ def main():
     set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
     # Fixed transformation 'tool base (t1) => tool tip (t)'
-    _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
-
-    # Update the position of the tool tip (Just for visualization purposes)
-    A_ee_t = A_ee_t1 @ A_t1_t  # combine the two transformations
-    set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
+    _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.14, 0, 0, 0)
+    set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3]))
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input("Press Enter to start visualizing IK-flow solutions…")
@@ -60,9 +57,7 @@ def main():
         viewer.sync()
 
         # Get the forward kinematics at a specified frame
-        pos = data.xpos[flange_body_id]  # shape: (3,)
-        rot = data.xmat[flange_body_id].reshape(3, 3)  # shape: (3, 3)
-        quat = rotm_to_quaternion(rot)
+        pos, quat = get_cartesian_pose(flange_body_id, data)
         print(f"FK: pos={np.round(pos, 3)}, quat={np.round(quat, 3)}")
 
         input("Press Enter to close the viewer…")

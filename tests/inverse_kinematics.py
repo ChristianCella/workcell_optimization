@@ -27,7 +27,7 @@ def main():
 
     # Path setup 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-    model_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene_ur5e.xml")
+    model_path = os.path.join(base_dir, "ur5e_utils_mujoco/bringup_ur5e.xml")
 
     # Load MuJoCo model
     model = mujoco.MjModel.from_xml_path(str(model_path))
@@ -53,7 +53,7 @@ def main():
     A_w_p[:3, :3] = R_w_p
 
     # Set robot base (matrix A^w_b)
-    _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
+    _, _, A_w_b = get_homogeneous_matrix(0.0, 0.1, 0.2, 0, 0, 0)
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the base of the tool with respect to the flange
@@ -66,10 +66,10 @@ def main():
     else:   
         gripper_length = 0.2
     _, _, A_t1_t = get_homogeneous_matrix(0, 0, gripper_length, 0, 0, 0)
+    set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3])) #* Tool tip update
 
-    # Update the position of the tool tip (Just for visualization purposes)
+    # Compute the transformation 'end-effector (ee) => tool tip (t)'
     A_ee_t = A_ee_t1 @ A_t1_t  # combine the two transformations
-    set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
     # End-effector with respect to wrist3
     t_wl3_ee = np.array([0, 0.1, 0])
@@ -130,8 +130,9 @@ def main():
             # Evaluate collisions and manipulability
             n_cols = get_collisions(model, data, params.verbose)
             sigma_manip = inverse_manipulability(q, model, data, tool_base_site_id)
-            time.sleep(params.show_pose_duration)
+            #time.sleep(params.show_pose_duration)          
             if params.verbose: print(f"Number of collisions detected: {n_cols}; inverse manipulability: {sigma_manip:.3f}")
+            input(f"Press a key to change move on...")
 
             # Compute the Cartesian pose of the tool tip (just a check)
             pos_tt = data.xpos[tool_tip_body_id] 

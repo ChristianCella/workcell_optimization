@@ -549,7 +549,7 @@ if __name__ == "__main__":
     # Path setup 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     sys.path.append(base_dir)
-    XML_PATH = os.path.join(base_dir, "ur5e_utils_mujoco/scene_ur5e.xml")
+    XML_PATH = os.path.join(base_dir, "ur5e_utils_mujoco/bringup_ur5e.xml")
 
     # Load model and create data
     model = mujoco.MjModel.from_xml_path(XML_PATH)
@@ -607,14 +607,8 @@ if __name__ == "__main__":
     set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
     # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
-    _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
-
-    # Update the position of the tool tip (Just for visualization purposes)
-    A_ee_t = A_ee_t1 @ A_t1_t
-    set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
-
-    # End-effector with respect to wrist3 (NOTE: this is always fixed)
-    _, _, A_wl3_ee = get_homogeneous_matrix(0, 0.1, 0, -90, 0, 0)
+    _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.14, 0, 0, 0)
+    set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3]))
 
     # Planner
     planner = RRTConnectPlanner(

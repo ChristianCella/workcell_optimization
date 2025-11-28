@@ -18,7 +18,6 @@ def quaternion_to_euler(q, degrees=False):
 
     return roll, pitch, yaw
 
-
 def rotm_to_quaternion(rotm):
     from scipy.spatial.transform import Rotation as R
     q = R.from_matrix(rotm).as_quat()
@@ -37,6 +36,12 @@ def get_homogeneous_matrix(tx, ty, tz, rx, ry, rz):
     A_mat[:3, 3] = t_vec
     A_mat[:3, :3] = R_mat
     return t_vec, R_mat, A_mat
+
+def get_cartesian_pose(frame_id, data):
+    position = data.xpos[frame_id]
+    rotation_matrix = data.xmat[frame_id].reshape(3, 3)
+    quaternion = rotm_to_quaternion(rotation_matrix)
+    return position, quaternion
 
 # Test the methods
 if __name__ == "__main__":

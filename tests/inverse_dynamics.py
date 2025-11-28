@@ -26,7 +26,7 @@ def main():
 
     # Path setup 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-    model_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene_ur5e.xml")
+    model_path = os.path.join(base_dir, "ur5e_utils_mujoco/bringup_ur5e.xml")
     verbose = True
 
     try:
@@ -51,6 +51,8 @@ def main():
 
         # Always use the site's *parent body* for COM and for xfrc_applied
         site_parent_body = model.site_bodyid[tool_tip_site_id]
+        parent_body_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, site_parent_body)
+        if verbose: print(f"{fonts.red}The parent body name is: {parent_body_name}{fonts.reset}")
 
         # External wrench defined in the *world* frame, applied at the tool site
         external_force_world = np.array([0, 0, -30]) #! In terms of world coordinates 
@@ -78,10 +80,10 @@ def main():
 
                 # Fixed transformation 'tool top (t1) => tool tip (t)'
                 _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.32, 0, 0, 0)
+                set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3]))
 
-                # Update the position of the tool tip (Just for visualization purposes)
+                # Compute the matrix 'end-effector (ee) => tool tip (t)'
                 A_ee_t = A_ee_t1 @ A_t1_t
-                set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
                 # Set the robot in the specified configuration
                 set_joint_configuration(data, model, desired_qpos)

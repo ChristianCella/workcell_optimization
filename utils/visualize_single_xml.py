@@ -7,8 +7,7 @@ from scipy.spatial.transform import Rotation as R
 # Path to your XML file
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.append(base_dir)
-#model_path = os.path.join(base_dir, "ur5e_utils_mujoco/scene_ur5e.xml")
-model_path = os.path.join(base_dir, "ur5e_utils_mujoco/hande.xml")
+model_path = os.path.join(base_dir, "ur5e_utils_mujoco/bringup_ur5e.xml")
 
 # Load the model
 model = mujoco.MjModel.from_xml_path(model_path)
@@ -18,8 +17,6 @@ data = mujoco.MjData(model)
 
 # Launch the viewer
 with mujoco.viewer.launch_passive(model, data) as viewer:
-    #q = np.array([0.9951, 4.5500, -1.5874, 0.5281, -4.0680, 2.2158])
-    #data.qpos[:6] = q.tolist()
     mujoco.mj_forward(model, data)
     viewer.sync()
     print("Number of joints:", model.njnt)
