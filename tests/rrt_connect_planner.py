@@ -9,7 +9,7 @@ from dataclasses import dataclass
 # Append the path to 'utils'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils')))
 from transformations import rotm_to_quaternion, get_homogeneous_matrix
-from mujoco_utils import set_body_pose
+from mujoco_utils import set_body_pose, scene_manager
 
 #! general utilities
 def clamp_to_limits(q, limits):
@@ -547,12 +547,11 @@ if __name__ == "__main__":
     n_pieces = 4
 
     # Path setup 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-    sys.path.append(base_dir)
-    XML_PATH = os.path.join(base_dir, "ur5e_utils_mujoco/bringup_ur5e.xml")
+    ur5e_utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ur5e_utils_mujoco'))
+    model_path = scene_manager("targets", n_pieces, ur5e_utils_dir, "bringup_ur5e.xml", "extension.xml")
 
     # Load model and create data
-    model = mujoco.MjModel.from_xml_path(XML_PATH)
+    model = mujoco.MjModel.from_xml_path(model_path)
     data = mujoco.MjData(model)
 
     # Decide which joints to plan (here: first N_joints hinge/slide joints)
@@ -590,7 +589,7 @@ if __name__ == "__main__":
     # Collision checker
     cc = MuJoCoCollisionChecker(model, base_qpos=base_qpos, joint_ids=plan_joint_ids)
 
-    # Joint configurations
+    # Joint configurations 
     q0 = np.array([3.21027059, -1.9272767, 1.48896107, -1.37510302, -1.44544918, 0.95626117])
     q1 = np.array([0.15059298, -1.9684049, -1.2978784, -1.9602102, 1.4496244, -5.277653])
     q2 = np.array([-1.2701917, 4.5727887, -2.2972264, -2.6262078, 2.8014793, -1.7441303])
@@ -607,7 +606,7 @@ if __name__ == "__main__":
     set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
     # Fixed transformation 'tool top (t1) => tool tip (t)' (NOTE: the rotation around z is not important)
-    _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.14, 0, 0, 0)
+    _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.157, 0, 0, 0)
     set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3]))
 
     # Planner

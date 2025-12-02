@@ -9,25 +9,30 @@ import torch
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 
-# Relative imports
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
-sys.path.append(base_dir)
+#* ur5e directory
+ur5e_utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ur5e_utils_mujoco'))
+
+#* Utils directory
+utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
+sys.path.append(utils_dir)
 import fonts
 from transformations import rotm_to_quaternion, get_homogeneous_matrix, quaternion_to_euler
-from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability
+from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, scene_manager
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 from constant_parameters import TestIkFlow
-params = TestIkFlow()
 
+#* Database directory
 database_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../database'))
 sys.path.append(database_dir)
 from query_db import get_tcp_frame
 
 def main():
 
+    # Acquire parameters
+    params = TestIkFlow()
+
     # Path setup 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-    model_path = os.path.join(base_dir, "ur5e_utils_mujoco/bringup_ur5e.xml")
+    model_path = scene_manager("targets", params.n_targets, ur5e_utils_dir, "bringup_ur5e.xml", "extension.xml")
 
     # Load MuJoCo model
     model = mujoco.MjModel.from_xml_path(str(model_path))
@@ -35,36 +40,49 @@ def main():
     mujoco.mj_resetData(model, data)
 
     # Get body/site IDs
-    base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
-    tool_base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_base") # Base of the tool
-    tool_base_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, 'tool_base_site')
-    tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_tip")
-    wrist_3_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "wrist_3_link")
+    base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base") #* Robot base
+    target_body_id   = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "reference_target_1") #* target
 
-    #! Piece in the world (define A^w_p) => Database
-    tcp_frame, wrench_values, tool_id = get_tcp_frame("16")
-    q_frame = [tcp_frame[6], tcp_frame[3], tcp_frame[4], tcp_frame[5]] 
-    theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 = quaternion_to_euler(q_frame, degrees=False)
-    print(f"The angles are: {theta_w_p_x_0}, {theta_w_p_y_0}, {theta_w_p_z_0}")
-    t_w_p = np.array([tcp_frame[0], tcp_frame[1], tcp_frame[2]])
-    R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
-    A_w_p = np.eye(4)
-    A_w_p[:3, 3] = t_w_p
-    A_w_p[:3, :3] = R_w_p
+    tool_base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_base") #* Base of the tool
+    tool_base_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, 'tool_base_site')
+    tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_tip") #* 'movable' frame in the tool
+
+    # Define the pose of the target in the world frame
+    if params.use_database:
+        tcp_frame, wrench_values, tool_id = get_tcp_frame("23")
+        q_frame = [tcp_frame[6], tcp_frame[3], tcp_frame[4], tcp_frame[5]] 
+        theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 = quaternion_to_euler(q_frame, degrees=False)
+        print(f"The angles are: {theta_w_p_x_0}, {theta_w_p_y_0}, {theta_w_p_z_0}")
+        t_w_p = np.array([tcp_frame[0], tcp_frame[1], tcp_frame[2]])
+        R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
+        A_w_p = np.eye(4)
+        A_w_p[:3, 3] = t_w_p
+        A_w_p[:3, :3] = R_w_p
+        if tool_id == "gripper_hande":
+            gripper_length = params.hande_offset
+        else:   
+            gripper_length = params.extension_offset + params.hande_offset
+
+    else:
+        t_w_p = np.array([params.x_tar, params.y_tar, params.z_tar]) 
+        R_w_p = R.from_euler('XYZ', [np.radians(params.theta_x_tar), np.radians(params.theta_y_tar), np.radians(params.theta_z_tar)], degrees=False).as_matrix()
+        A_w_p = np.eye(4)
+        A_w_p[:3, 3] = t_w_p
+        A_w_p[:3, :3] = R_w_p
+        gripper_length = params.extension_offset + params.hande_offset
 
     # Set robot base (matrix A^w_b)
-    _, _, A_w_b = get_homogeneous_matrix(0.0, 0.1, 0.2, 0, 0, 0)
+    _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
+
+    # Update the target pose in the simulator
+    set_body_pose(model, data, target_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Set the base of the tool with respect to the flange
     _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
     set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
     # Fixed transformation 'tool base (t1) => tool tip (t)'
-    if tool_id == "gripper_hande":
-        gripper_length = 0.14
-    else:   
-        gripper_length = 0.2
     _, _, A_t1_t = get_homogeneous_matrix(0, 0, gripper_length, 0, 0, 0)
     set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3])) #* Tool tip update
 

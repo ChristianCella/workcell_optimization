@@ -12,7 +12,7 @@ from scipy.spatial.transform import Rotation as R
 utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(utils_dir)
 from transformations import rotm_to_quaternion, get_world_wrench, get_homogeneous_matrix
-from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian
+from mujoco_utils import set_body_pose, compute_jacobian, scene_manager
 import fonts
 
 def set_joint_configuration(data, model, desired_qpos):
@@ -25,8 +25,8 @@ def set_joint_configuration(data, model, desired_qpos):
 def main():
 
     # Path setup 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-    model_path = os.path.join(base_dir, "ur5e_utils_mujoco/bringup_ur5e.xml")
+    ur5e_utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ur5e_utils_mujoco'))
+    model_path = scene_manager("robot", 1, ur5e_utils_dir, "bringup_ur5e.xml", "extension.xml")
     verbose = True
 
     try:

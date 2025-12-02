@@ -7,6 +7,16 @@ class TestIkFlow:
     N_samples: int = 30  # Samples per 'discretized' pose configuration
     N_disc: int = 10  # Number of discrete configurations to test (rotational sweep)
     show_pose_duration: int = 1  # Seconds to show each pose
+    use_database: bool = True # Use txt database
+    n_targets: int = 1  # Number of target reference frames
+    x_tar: float = 0.4  # Target x position
+    y_tar: float = 0.0  # Target y position
+    z_tar: float = 0.4  # Target z position
+    theta_x_tar : float = 180.0 # Target x orientation (deg)
+    theta_y_tar : float = 0.0   # Target y orientation (deg)
+    theta_z_tar : float = 0.0   # Target z orientation (deg)
+    hande_offset : float = 0.157  # Length of the gripper hande
+    extension_offset : float = 0.2  # Length of the extension tool
 
 @dataclass
 class OptimizationParameters:
