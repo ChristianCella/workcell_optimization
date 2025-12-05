@@ -1,4 +1,5 @@
 import mariadb
+import numpy as np
 
 DB_CONFIG = {
     'host': '127.0.0.1',
@@ -68,7 +69,7 @@ def get_tcp_frame(frame_id):
     conn.close()
 
     if not result:
-        raise ValueError(f"No frame found with id: {frame_id}")
+        return "None", "None", "None"
 
     # Get the tcp_frame Cartesian coordinates
     tcp_frame = result[0].strip('{}')
@@ -87,6 +88,32 @@ def get_tcp_frame(frame_id):
     tool_id = result[2]
     return frame_values, wrench_values, tool_id
 
+def complete_query():
+
+    stop_acquisition = False
+    n_targets = 0
+    targets_poses = []
+    world_wrenches = []
+    tool_ids = []
+
+    while not stop_acquisition:
+        tcp_frame, tcp_wrench, tool_id = get_tcp_frame(f"{n_targets + 1}")
+        
+        if tcp_frame == "None":
+            stop_acquisition = True
+        else:
+            n_targets += 1
+            targets_poses.append(tcp_frame)
+            tool_ids.append(tool_id)
+
+            # Convert wrench to NumPy array for consistent formatting
+            if tcp_wrench is None:
+                world_wrenches.append(None)
+            else:
+                world_wrenches.append(np.array(tcp_wrench))
+
+    return n_targets, targets_poses, world_wrenches, tool_ids
+
 if __name__ == "__main__":
     '''
     atomic_name = "MRfcuappr" # Row 4 of the table 'robotic_atomics'
@@ -101,7 +128,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {e}")
     '''
-    tcp_frame, wrench_values, tool_id = get_tcp_frame("2")
+    tcp_frame, wrench_values, tool_id = get_tcp_frame("25")
     print(f"TCP Frame: {tcp_frame}\n")
     print(f"Wrench Values: {wrench_values}\n")
     print(f"Tool ID: {tool_id}\n")

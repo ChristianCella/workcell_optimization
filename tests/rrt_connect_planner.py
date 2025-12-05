@@ -4,6 +4,7 @@ import mujoco
 import mujoco.viewer
 import math
 import time
+import colorsys
 from dataclasses import dataclass
 
 # Append the path to 'utils'
@@ -528,8 +529,6 @@ def clear_all_point_markers(viewer):
     viewer.sync()
 
 
-import colorsys
-
 def color_by_index(i, total=None, alpha=1.0):
     """Evenly spaced hues; returns (r,g,b,a) in [0,1]."""
     if total is None:
@@ -537,6 +536,84 @@ def color_by_index(i, total=None, alpha=1.0):
     h = (i % total) / float(total)
     r, g, b = colorsys.hsv_to_rgb(h, 0.8, 1.0)
     return (r, g, b, alpha)
+
+def create_rrt_planner(
+    model,
+    data,
+    n_joints: int = 6,
+    step_size: float = 0.15,
+    per_joint_check_step: float = 0.2,
+    goal_tolerance: float = 0.03,
+    goal_bias: float = 0.15,
+    max_iters: int = 500,
+    base_qpos=None,
+    weights=None,
+    revolute_mask=None,
+    verbose: bool = False,
+):
+    """
+    Build a MuJoCoCollisionChecker + RRTConnectPlanner for the first `n_joints`.
+
+    Returns:
+        planner, cc, jnt_range, plan_joint_ids
+    """
+    # Decide which joints to plan over
+    assert n_joints <= model.njnt, "Selected # joints exceeds model.njnt"
+    plan_joint_ids = np.arange(n_joints, dtype=int)
+
+    # Joint limits for planned joints
+    jnt_range = model.jnt_range[plan_joint_ids].copy()  # (n_joints, 2)
+
+    # Handle unlimited joints 
+    for i in range(n_joints):
+        jid = plan_joint_ids[i]
+        if model.jnt_limited[jid] == 0:
+            if model.jnt_type[jid] == mujoco.mjtJoint.mjJNT_HINGE:
+                jnt_range[i] = np.array([-np.pi, np.pi])
+            elif model.jnt_type[jid] == mujoco.mjtJoint.mjJNT_SLIDE:
+                jnt_range[i] = np.array([-0.5, 0.5])
+
+    lb = jnt_range[:, 0]
+    ub = jnt_range[:, 1]
+
+    if weights is None:
+        weights = np.ones(n_joints, dtype=float)
+
+
+    # Base pose for non-planned joints
+    if base_qpos is None:
+        base_qpos = data.qpos.copy()
+
+    # Collision checker
+    cc = MuJoCoCollisionChecker(
+        model,
+        base_qpos=base_qpos,
+        joint_ids=plan_joint_ids
+    )
+
+    # Planner
+    planner = RRTConnectPlanner(
+        collision_checker=cc,
+        joint_limits=jnt_range,
+        step_size=step_size,
+        per_joint_check_step=per_joint_check_step,
+        goal_tolerance=goal_tolerance,
+        goal_bias=goal_bias,
+        max_iters=max_iters,
+        weights=weights,
+        revolute_mask=revolute_mask
+    )
+
+    if verbose:
+        print("Planner created:")
+        print(f"  joint ids: {plan_joint_ids}")
+        print(f"  lower limits: {lb}")
+        print(f"  upper limits: {ub}")
+        print(f"  weights: {weights}")
+        print(f"  revolute_mask: {revolute_mask}")
+
+    return planner, cc, jnt_range, plan_joint_ids
+
 
 
 #! Test code
@@ -554,30 +631,8 @@ if __name__ == "__main__":
     model = mujoco.MjModel.from_xml_path(model_path)
     data = mujoco.MjData(model)
 
-    # Decide which joints to plan (here: first N_joints hinge/slide joints)
-    n_joints = 6
-    assert n_joints <= model.njnt, "The selected # of joints exceeds number of joints in model."
-    plan_joint_ids = np.arange(n_joints, dtype=int)
-
-    # Joint limits for planned joints
-    jnt_range = model.jnt_range[plan_joint_ids].copy()  # shape (N_joints, 2)
-
-    # Handle unlimited joints (optional defaults)
-    for i in range(n_joints):
-        if model.jnt_limited[plan_joint_ids[i]] == 0:
-            if model.jnt_type[plan_joint_ids[i]] == mujoco.mjtJoint.mjJNT_HINGE:
-                jnt_range[i] = np.array([-np.pi, np.pi])
-            elif model.jnt_type[plan_joint_ids[i]] == mujoco.mjtJoint.mjJNT_SLIDE:
-                jnt_range[i] = np.array([-0.5, 0.5])
-
-    # Boolean mask telling the planner which joints are revolute
-    revolute_mask = np.array([model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE for j in plan_joint_ids], dtype=bool)
-
-    # Uniform weights (tune if you want workspace isotropy)
-    weights = np.ones(n_joints, dtype=float)
-
     # Base pose for other (non-planned) joints
-    base_qpos = data.qpos.copy()   # keep current defaults for everything else
+    #base_qpos = data.qpos.copy()   # keep current defaults for everything else
 
     # Get body/site IDs
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
@@ -585,9 +640,6 @@ if __name__ == "__main__":
     tool_base_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_base_site")
     tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_tip")
     tool_tip_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_tip_site")
-
-    # Collision checker
-    cc = MuJoCoCollisionChecker(model, base_qpos=base_qpos, joint_ids=plan_joint_ids)
 
     # Joint configurations 
     q0 = np.array([3.21027059, -1.9272767, 1.48896107, -1.37510302, -1.44544918, 0.95626117])
@@ -609,18 +661,15 @@ if __name__ == "__main__":
     _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.157, 0, 0, 0)
     set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3]))
 
-    # Planner
-    planner = RRTConnectPlanner(
-        collision_checker=cc,
-        joint_limits=jnt_range,
-        step_size=0.15,                 # radians (approx joint metric)
-        per_joint_check_step=0.2,       # coarse for planning (OK if geometry is chunky)
-        goal_tolerance=0.03,            # ~1.7 deg
-        goal_bias=0.15,
-        max_iters=500,
-        weights=weights,
-        revolute_mask=revolute_mask
+    # Revolute mask and weights
+    weights = np.ones(6, dtype=float)
+    revolute_mask = np.array(
+        [model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE for j in np.arange(6, dtype=int)],
+        dtype=bool
     )
+
+    # Planner
+    planner, cc, jnt_range, plan_joint_ids = create_rrt_planner(model, data, n_joints=6, verbose=False, weights=weights, revolute_mask=revolute_mask)
 
     all_markers = []
     all_paths = []

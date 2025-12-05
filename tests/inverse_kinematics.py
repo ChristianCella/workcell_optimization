@@ -16,7 +16,7 @@ ur5e_utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../
 utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(utils_dir)
 import fonts
-from transformations import rotm_to_quaternion, get_homogeneous_matrix, quaternion_to_euler
+from transformations import rotm_to_quaternion, get_homogeneous_matrix, quaternion_to_euler, get_cartesian_pose
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, scene_manager
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 from constant_parameters import TestIkFlow
@@ -30,9 +30,10 @@ def main():
 
     # Acquire parameters
     params = TestIkFlow()
+    tool_id = "gripper_hande"  # Default tool
 
     # Path setup 
-    model_path = scene_manager("targets", params.n_targets, ur5e_utils_dir, "bringup_ur5e.xml", "extension.xml")
+    model_path = scene_manager(params.mode, params.n_targets, ur5e_utils_dir, "bringup_ur5e.xml", "extension.xml")
 
     # Load MuJoCo model
     model = mujoco.MjModel.from_xml_path(str(model_path))
@@ -46,6 +47,8 @@ def main():
     tool_base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_base") #* Base of the tool
     tool_base_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, 'tool_base_site')
     tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_tip") #* 'movable' frame in the tool
+
+    ext_base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ext_base") #* Base of the extension tool
 
     # Define the pose of the target in the world frame
     if params.use_database:
@@ -70,6 +73,11 @@ def main():
         A_w_p[:3, 3] = t_w_p
         A_w_p[:3, :3] = R_w_p
         gripper_length = params.extension_offset + params.hande_offset
+        tool_id = "extension"
+        #gripper_length = params.hande_offset
+        theta_w_p_x_0 = np.radians(params.theta_x_tar)
+        theta_w_p_y_0 = np.radians(params.theta_y_tar)
+        theta_w_p_z_0 = np.radians(params.theta_z_tar)
 
     # Set robot base (matrix A^w_b)
     _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
@@ -87,14 +95,17 @@ def main():
     set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3])) #* Tool tip update
 
     # Compute the transformation 'end-effector (ee) => tool tip (t)'
-    A_ee_t = A_ee_t1 @ A_t1_t  # combine the two transformations
+    A_ee_t = A_ee_t1 @ A_t1_t
 
-    # End-effector with respect to wrist3
+    # End-effector with respect to wrist3 (this is ALWAYS fixed)
     t_wl3_ee = np.array([0, 0.1, 0])
     R_wl3_e = R.from_euler('XYZ', [np.radians(-90), 0, 0], degrees=False).as_matrix()
     A_wl3_ee = np.eye(4)
     A_wl3_ee[:3, 3] = t_wl3_ee
     A_wl3_ee[:3, :3] = R_wl3_e
+
+    # Constant matrices for the extension tool
+    _, _, A_eb_et = get_homogeneous_matrix(0, 0, 0.2, 0, 0, 0)
 
     #! Make inference on the nornmalizing flow (ikflow)   
     fast_ik_solver = FastIKFlowSolver()       
@@ -143,6 +154,21 @@ def main():
             # apply the i-th joint solution
             data.qpos[:6] = q.tolist()
             mujoco.mj_forward(model, data)
+
+            # Now, update the scene also for the extension tool (if any)
+            if params.mode == "full":
+                if tool_id != "gripper_hande":
+                    pos, quat = get_cartesian_pose(tool_tip_body_id, data)
+                    eul = quaternion_to_euler(quat, degrees=False)
+                    _, _, A_w_et = get_homogeneous_matrix(pos[0], pos[1], pos[2], np.degrees(eul[0]), np.degrees(eul[1]), np.degrees(eul[2]))
+                    A_w_eb = A_w_et @ np.linalg.inv(A_eb_et)
+                    set_body_pose(model, data, ext_base_body_id, A_w_eb[:3, 3], rotm_to_quaternion(A_w_eb[:3, :3]))
+                    mujoco.mj_forward(model, data)
+                else:
+                    _, _, A_w_et = get_homogeneous_matrix(2, 2, 2, 0, 0, 0)
+                    A_w_eb = A_w_et @ np.linalg.inv(A_eb_et)
+                    set_body_pose(model, data, ext_base_body_id, A_w_eb[:3, 3], rotm_to_quaternion(A_w_eb[:3, :3]))
+                    mujoco.mj_forward(model, data)
             viewer.sync()
 
             # Evaluate collisions and manipulability
