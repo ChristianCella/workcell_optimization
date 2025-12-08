@@ -3,11 +3,24 @@ import numpy as np
 from lxml import etree
 import sys, os
 import copy
+from transformations import rotm_to_quaternion, quaternion_to_euler
 
 def set_body_pose(model, data, body_id, pos, quat):
     model.body_pos[body_id] = pos
     model.body_quat[body_id] = quat
     mujoco.mj_forward(model, data)
+
+def get_cartesian_pose(frame_id, data, representation):
+    position = data.xpos[frame_id]
+    rotation_matrix = data.xmat[frame_id].reshape(3, 3)
+    quaternion = rotm_to_quaternion(rotation_matrix)
+    euler_angles = quaternion_to_euler(quaternion, degrees=False)
+    if representation == "quaternion":
+        return position, quaternion
+    elif representation == "euler":
+        return position, euler_angles
+    elif representation == "rotation_matrix":
+        return position, rotation_matrix
 
 def compute_jacobian(model, data, tool_site_id):
     Jp = np.zeros((3, model.nv))
@@ -39,9 +52,7 @@ def inverse_manipulability(q, model, data, tool_site_id):
     det = np.linalg.det(JJt)
     return 1e12 if det <= 1e-12 else 1.0/np.sqrt(det)
 
-
 def create_reference_frames(starting_scene_path, n_targets, final_xml_directory):
-
     # ! Load and modify the xml
     xml_path = starting_scene_path
     with open(xml_path, 'r') as f:

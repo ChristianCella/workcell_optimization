@@ -21,5 +21,4 @@ data = mujoco.MjData(model)
 with mujoco.viewer.launch_passive(model, data) as viewer:
     mujoco.mj_forward(model, data)
     viewer.sync()
-    print(f"The lower bounds are: {lb}")
     input("Press Enter to continue...")

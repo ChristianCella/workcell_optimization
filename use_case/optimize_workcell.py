@@ -1,62 +1,56 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-import mpl_toolkits.mplot3d as tool
 import warnings
 import sys
 import time
 import os
-import pandas as pd
-from datetime import datetime
-import matplotlib    
-import matplotlib.pyplot as plt
 import torch     
-import logging
+from scipy.spatial.transform import Rotation as R
+import mujoco, mujoco.viewer
+import random
+import pandas as pd
 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0' 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1' 
 warnings.filterwarnings('ignore')
 
-from scipy.spatial.transform import Rotation as R
-import tensorflow as tf
-tf.get_logger().setLevel(logging.ERROR)
-tf.random.set_seed(444)
-
-import cma
-import mujoco
-import mujoco.viewer
-
-#* ur5e directory
+#* ur5e 
 ur5e_utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ur5e_utils_mujoco'))
 
-#* Results directory 
+#* Results  
 save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../results'))
 
-#* Database directory
+#* Database 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../database')))
 from query_db import complete_query
 
-#* Utils directory
+#* Utils 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils')))
 from constant_parameters import OptimizationParameters, Ur5eRobot, Tools
-import fonts
-from transformations import rotm_to_quaternion, get_world_wrench, get_homogeneous_matrix, quaternion_to_euler, get_cartesian_pose
-from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian, scene_manager
+from transformations import rotm_to_quaternion, get_homogeneous_matrix, quaternion_to_euler
+from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian, scene_manager, get_cartesian_pose
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
+import fonts
 
-#* TuRBO directory
+#* TuRBO 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../TuRBO')))
 from turbo.turbo_m import TurboM
-
-#* Path planner directory
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../tests')))
-from rrt_connect_planner import clamp_to_limits, prune_near_duplicates, resample_path_by_count, workspace_length_simple, create_rrt_planner
 
 #* Instances of ikflow model and parameters
 global_fast_ik_solver = FastIKFlowSolver()
 opt_par = OptimizationParameters()
 rob_par = Ur5eRobot()
 tool_par = Tools()
+
+#* Constant matrices
+_, _, A_wl3_ee = get_homogeneous_matrix(0, 0.1, 0, -90, 0, 0)
+_, _, A_eb_et = get_homogeneous_matrix(0, 0, tool_par.extension_offset, 0, 0, 0)
+
+'''
+Functions for the optimization.
+'''
+
+#! Domain scaling for TuRBO
+def decode(z, center, scale):  return center + scale * z
 
 #! Wrapper to use mujoco APIs during the optimization
 def make_simulator():
@@ -71,10 +65,6 @@ def make_simulator():
     data  = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
 
-    #* Instance of the rrt planner
-    revolute_mask = np.array([model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE for j in np.arange(rob_par.nu, dtype=int)], dtype=bool)
-    planner, cc, jnt_range, _ = create_rrt_planner(model, data, n_joints=rob_par.nu, verbose=False, weights=opt_par.weights_rrt, revolute_mask=revolute_mask)
-
     # Get the ids of all the target locations
     target_body_ids = []
     for i in range(model.nbody):
@@ -83,121 +73,94 @@ def make_simulator():
             target_body_ids.append(i)
 
     # Place the static targets in the scene
-    for i, body_id in enumerate(target_body_ids):
-        t_w_p = np.array([targets_poses[i][0], targets_poses[i][1], targets_poses[i][2]])
-        q_frame = [targets_poses[i][6], targets_poses[i][3], targets_poses[i][4], targets_poses[i][5]] 
-        theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 = quaternion_to_euler(q_frame, degrees=False)
-        R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
+    for i, body_id in enumerate(target_body_ids): 
+        tetax, tetay, tetaz = quaternion_to_euler([targets_poses[i][6], targets_poses[i][3], targets_poses[i][4], targets_poses[i][5]], degrees=False)
         A_w_p = np.eye(4)
-        A_w_p[:3, 3] = t_w_p
-        A_w_p[:3, :3] = R_w_p
+        A_w_p[:3, 3] = np.array([targets_poses[i][0], targets_poses[i][1], targets_poses[i][2]])
+        A_w_p[:3, :3] = R.from_euler('XYZ', [tetax, tetay, tetaz], degrees=False).as_matrix()
         set_body_pose(model, data, body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Get body/site IDs
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
-    tool_base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_base") #* Base of the tool
-    tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_tip") #* 'movable' frame in the tool
+    tool_base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_base") 
+    tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_tip")
     tool_tip_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, 'tool_tip_site')
-
-    ext_base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ext_base") #* Base of the extension tool
+    ext_base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ext_base") 
 
     #! This method is run for every individual of a certain generation, for all generations
     def run_simulation(params: np.ndarray) -> float:
+        mujoco.mj_resetData(model, data) 
 
-        mujoco.mj_resetData(model, data) #* NOTE => you must reset the data at each call
-
-        # Set the new robot base (matrix A^w_b)
-        _, _, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), float(params[2]), 0, 0, 0)
+        # Set robot base wrt world
+        _, _, A_w_b = get_homogeneous_matrix(float(params[0]), float(params[1]), 0, 0, 0, 0)
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
-        # Set the hande base with respect to the flange
+        # Set gripper wrt flange
         _, _, A_ee_t1 = get_homogeneous_matrix(0, 0, 0, 0, 0, 0)
         set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
 
-        # End-effector with respect to wrist3 (NOTE: this is always fixed)
-        _, _, A_wl3_ee = get_homogeneous_matrix(0, 0.1, 0, -90, 0, 0)
-
-        # Constant matrices for the extension tool
-        _, _, A_eb_et = get_homogeneous_matrix(0, 0, tool_par.extension_offset, 0, 0, 0)
-
-        # Set the new robot configuration
-        q0 = np.radians([-90, -90, -90, -90, 90, 0])
-        data.qpos[:6] = q0.tolist()
+        # Home configuration
+        q0 = rob_par.home_configuration.copy()
+        data.qpos[:rob_par.nu] = q0.tolist()
         mujoco.mj_forward(model, data)
-        if opt_par.activate_gui: viewer.sync()
-
-        # Matrix S
-        H_mat = np.diag(rob_par.gear_ratios) # Diagonal matrix for gear ratios
-        Gamma_mat = np.diag(rob_par.max_torques) # Diagonal matrix for max torques
-        S = np.linalg.inv(H_mat.T) @ np.linalg.inv(Gamma_mat.T) @ np.linalg.inv(Gamma_mat) @ np.linalg.inv(H_mat) #! S = H^-T * Gamma^-T * Gamma^-1 * H^-1
-
-        # Start the optimization for the individual
-        norms = []
-        best_configs = []
+        #if opt_par.activate_gui: viewer.sync()
+      
+        # Optimization for one individual of the batch
+        tau_hat_abs = [] 
+        q_star = [] 
 
         #! First check: collisions of the initial layout (Soft constraint for layout feasibility)
         n_cols_initial = get_collisions(model, data, opt_par.verbose)
 
         if n_cols_initial > 0:
-            if opt_par.verbose: print(f"Initial layout has {n_cols_initial} collisions. Skipping this individual.")
+            if opt_par.verbose: print(f"{fonts.red}Initial layout has {n_cols_initial} collisions. Skipping this individual.{fonts.reset}")
 
             # Append values that you can associate to this failure (bad initial layout)
             for j in range(len(target_body_ids)):
-                norms.append(1e2) 
-                best_configs.append(np.zeros(6)) 
+                tau_hat_abs.append(1e2) 
+                q_star.append(np.zeros(rob_par.nu)) 
 
             # The fitness will be 'infinite' in this case
-            fit_lead_prim = float(np.mean(norms))
-            fit_lead_fol = 1e2 / (2 * np.pi * rob_par.robot_reach)
-            return fit_lead_prim, fit_lead_fol, best_configs
+            fit_lead_prim = float(np.mean(tau_hat_abs))
+            fit_lead_sec = 1e2 
+            return fit_lead_prim, fit_lead_sec, q_star
 
         else:
-            if opt_par.verbose: print(f"Initial layout has no collisions. Proceeding with the optimization.")
+            if opt_par.verbose: print(f"{fonts.green}Initial layout has no collisions. Proceeding with the optimization.{fonts.reset}")
 
-            # Counter for the optimization
+            # Counters 
             counter_pieces_without_cols = 0
             counter_pieces_ik_aval = 0
 
             for j in range(len(target_body_ids)): # ! For each target location
-                if opt_par.verbose: print(f"Solving IK for target frame {j}")
+                #print(f"{fonts.yellow}Target frame {j}{fonts.reset}")
 
-                # Get the pose of the target 
-                posit = data.xpos[target_body_ids[j]]
-                rotm = data.xmat[target_body_ids[j]].reshape(3, 3)
-                theta_x_0, theta_y_0, theta_z_0 = R.from_matrix(rotm).as_euler('XYZ', degrees=True)
-
-                # Decide if the j-th target needs the Finger Tool
+                # Check needed tool
                 tool_id = tool_ids[j]
                 if tool_id == "gripper_hande":
                     gripper_length = tool_par.hande_offset
+                    task_redundancy = 2
+
+                    # In case of gripper alone, move the extension away
+                    _, _, A_w_et = get_homogeneous_matrix(tool_par.detachment_pose[0], tool_par.detachment_pose[1], tool_par.detachment_pose[2], tool_par.detachment_pose[3], tool_par.detachment_pose[4], tool_par.detachment_pose[5])
+                    A_w_eb = A_w_et @ np.linalg.inv(A_eb_et)
+                    set_body_pose(model, data, ext_base_body_id, A_w_eb[:3, 3], rotm_to_quaternion(A_w_eb[:3, :3]))
+                    mujoco.mj_forward(model, data)
                 elif tool_id == "FingerTool":   
                     gripper_length = tool_par.extension_offset + tool_par.hande_offset
+                    task_redundancy = opt_par.Nd
 
-                # Compute matrices
+                # Set tip frame
                 _, _, A_t1_t = get_homogeneous_matrix(0, 0, gripper_length, 0, 0, 0)
-                set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3])) #* Tool tip update
+                set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3])) 
                 A_ee_t = A_ee_t1 @ A_t1_t
-
-                # Update the pose of the extension
-                if tool_id != "gripper_hande":
-                    pos, quat = get_cartesian_pose(tool_tip_body_id, data)
-                    eul = quaternion_to_euler(quat, degrees=False)
-                    _, _, A_w_et = get_homogeneous_matrix(pos[0], pos[1], pos[2], np.degrees(eul[0]), np.degrees(eul[1]), np.degrees(eul[2]))
-                    A_w_eb = A_w_et @ np.linalg.inv(A_eb_et)
-                    set_body_pose(model, data, ext_base_body_id, A_w_eb[:3, 3], rotm_to_quaternion(A_w_eb[:3, :3]))
-                    mujoco.mj_forward(model, data)
-                else:
-                    _, _, A_w_et = get_homogeneous_matrix(2, 2, 2, 0, 0, 0)
-                    A_w_eb = A_w_et @ np.linalg.inv(A_eb_et)
-                    set_body_pose(model, data, ext_base_body_id, A_w_eb[:3, 3], rotm_to_quaternion(A_w_eb[:3, :3]))
-                    mujoco.mj_forward(model, data)
                 if opt_par.activate_gui: viewer.sync()
 
                 #! Solve IK for the speficic piece with ikflow
                 sols_ok, fk_ok = [], []
-                for i in range(opt_par.Nd): 
-                    
-                    _, _, A_w_p_rotated = get_homogeneous_matrix(posit[0], posit[1], posit[2], theta_x_0, theta_y_0, theta_z_0 + i * 360 / opt_par.Nd)
+                for i in range(task_redundancy): 
+                    tetax, tetay, tetaz = quaternion_to_euler([targets_poses[j][6], targets_poses[j][3], targets_poses[j][4], targets_poses[j][5]], degrees=True)                 
+                    _, _, A_w_p_rotated = get_homogeneous_matrix(targets_poses[j][0], targets_poses[j][1], targets_poses[j][2], tetax, tetay, tetaz + i * 360 / task_redundancy)
                     A_b_wl3 = np.linalg.inv(A_w_b) @ A_w_p_rotated @ np.linalg.inv(A_ee_t) @ np.linalg.inv(A_wl3_ee)
 
                     # Create the target pose for the IK solver (from robot base to wrist_link_3)
@@ -221,35 +184,44 @@ def make_simulator():
                 cost_fol = 1e6
                 best_cost_fol = 1e6
 
-                # Maybe, no IK solution is available (i.e., the piece is unreachable since outside the workspace)
+                #* Reachability check
                 best_q = np.zeros(rob_par.nu)
                 if len(sols_np) > 0: #! There are IK solutions available
 
                     counter_pieces_ik_aval += 1 # Increase the counter
 
                     for i, (q, x) in enumerate(zip(sols_np, fk_np), 1): #! Test each joint configuration
-                        if opt_par.verbose: print(f"[OK] sol {i:2d}: q={np.round(q,3)}  →  x={np.round(x,3)}")
 
                         # apply joint solution
-                        data.qpos[:6] = q.tolist()
+                        data.qpos[:rob_par.nu] = q.tolist()
                         mujoco.mj_forward(model, data)
+
+                        # Update the pose of the extension, if needed
+                        if tool_id == "FingerTool":
+                            pos, eul = get_cartesian_pose(tool_tip_body_id, data, 'euler')
+                            _, _, A_w_et = get_homogeneous_matrix(pos[0], pos[1], pos[2], np.degrees(eul[0]), np.degrees(eul[1]), np.degrees(eul[2]))
+                            A_w_eb = A_w_et @ np.linalg.inv(A_eb_et)
+                            set_body_pose(model, data, ext_base_body_id, A_w_eb[:3, 3], rotm_to_quaternion(A_w_eb[:3, :3]))
+                            mujoco.mj_forward(model, data)
+
                         #viewer.sync()
+                        #input(f"{fonts.cyan}Enter to evaluate next q{fonts.reset}")
                         #time.sleep(parameters.show_pose_duration)
 
-                        #* Collisions, 'inverse' manipulability and secondary objective
+                        # Collisions, 'inverse' manipulability and secondary objective
                         n_cols = get_collisions(model, data, opt_par.verbose)
 
                         # Follower primary objective
-                        f_delta_j = inverse_manipulability(q.copy(), model, data, tool_tip_site_id)
+                        fit_fol_prim = inverse_manipulability(q.copy(), model, data, tool_tip_site_id)
 
                         # Follower secondary objective
                         m  = 0.5 * (rob_par.lb + rob_par.ub)
                         s  = 0.5 * (rob_par.ub - rob_par.lb)
                         diff = q.copy() - m
-                        f_q = float(np.sum(opt_par.centering_weights * (diff / s)**2)) 
+                        fit_fol_sec = float(np.sum(opt_par.centering_weights * (diff / s)**2)) 
 
                         # Total cost for the j-th follower
-                        cost_fol = opt_par.weights_follower[0] * f_delta_j + opt_par.weights_follower[1] * f_q
+                        cost_fol = opt_par.weights_follower[0] * fit_fol_prim + opt_par.weights_follower[1] * fit_fol_sec
 
                         # Check if better than the current
                         if (cost_fol < best_cost_fol) and (n_cols == 0):
@@ -258,92 +230,52 @@ def make_simulator():
 
                     # ! If best cost is not equal to infinite
                     if best_cost_fol < 1e6:
-                        counter_pieces_without_cols += 1 # Increase the counter
+                        counter_pieces_without_cols += 1 
         
-                else: #! No IK solution found, set the best configuration to the default one (all joints at 0)  
-                    best_q = np.zeros(6)
+                else: #! No IK solution found  
+                    best_q = np.zeros(rob_par.nu)
                 
-                # Udate the viewer with the best configuration found
-                data.qpos[:6] = best_q.tolist()
-                data.qvel[:] = 0  # clear velocities
-                data.qacc[:] = 0  # clear accelerations
-                data.ctrl[:] = 0  # (if using actuators, may help avoid torque pollution)
+                # Update the viewer with the best configuration found
+                data.qpos[:rob_par.nu] = best_q.tolist()
+                data.qvel[:] = 0
+                data.qacc[:] = 0    
+                data.ctrl[:] = 0
                 mujoco.mj_forward(model, data)
+
+                # Update the pose of the extension, if needed
+                if tool_id == "FingerTool":
+                    pos, eul = get_cartesian_pose(tool_tip_body_id, data, 'euler')
+                    _, _, A_w_et = get_homogeneous_matrix(pos[0], pos[1], pos[2], np.degrees(eul[0]), np.degrees(eul[1]), np.degrees(eul[2]))
+                    A_w_eb = A_w_et @ np.linalg.inv(A_eb_et)
+                    set_body_pose(model, data, ext_base_body_id, A_w_eb[:3, 3], rotm_to_quaternion(A_w_eb[:3, :3]))
+                    mujoco.mj_forward(model, data)
+
                 if opt_par.activate_gui: viewer.sync()
-                if opt_par.activate_gui: time.sleep(1.0) # If this is not present, you will never have time to see also the 'optimal' config. for the final piece
+                if opt_par.activate_gui: time.sleep(1.0) # Pause to show the best configuration found
 
                 # ! Compute the torques for the best configuration
                 J = compute_jacobian(model, data, tool_tip_site_id)
-                tau_g = data.qfrc_bias[:6]
+                tau_g = data.qfrc_bias[:rob_par.nu]
                 tau_ext = J.T @ world_wrenches[j][:]
                 tau_tot = (tau_ext + tau_g) / (rob_par.gear_ratios * rob_par.max_torques)
 
-                # Check on feasibility: if q = np.zeros(6) => IK failed
-                if not np.array_equal(best_q, np.zeros(6)):
-                    norms.append(np.linalg.norm(tau_tot))
+                # Check on feasibility: if q = np.zeros() => IK failed
+                if not np.array_equal(best_q, np.zeros(rob_par.nu)):
+                    tau_hat_abs.append(np.linalg.norm(tau_tot))
                 else:
-                    norms.append(1e2) #! Ik not feasible => Drive the algorithm away from this configuration
+                    tau_hat_abs.append(1e2) 
 
                 # Append the best configuration for this piece
-                best_configs.append(best_q.copy())
+                q_star.append(best_q.copy())
                 if opt_par.verbose: print(f"Best configuration for piece {j}: {np.round(best_q, 3)} with cost {best_cost_fol:.3f}")
 
-            # ! All the pieces to be screwed have been processed 
-            if (counter_pieces_without_cols == len(target_body_ids)) and (counter_pieces_ik_aval == len(target_body_ids)):
-                total_length = 0
-                q_list_proxy = [q0.copy()] + best_configs.copy()
-                for p in range(len(target_body_ids) + 1): 
-                    h = p+1
-                    if p == len(target_body_ids): 
-                        h = 0
-                    # Define start and goal
-                    q_start = clamp_to_limits(q_list_proxy[p].copy(), jnt_range)
-                    q_goal  = clamp_to_limits(q_list_proxy[h].copy(), jnt_range)
-
-                    # Set the start joint config
-                    data.qpos[:6] = q_start.tolist()
-                    mujoco.mj_forward(model, data)
-
-                    # Get the path
-                    try:
-                        path, _ = planner.plan(q_start, q_goal, time_budget_s=5.0)
-                    except RuntimeError as e:
-                        # Typical planner errors (e.g., goal in collision).
-                        if opt_par.verbose:
-                            print(f"[Planner] {e} — treating as no-path for this segment.")
-                        path = None
-                    except Exception as e:
-                        # Any other unexpected planner issue: degrade gracefully
-                        if opt_par.verbose:
-                            print(f"[Planner] Unexpected error: {e} — treating as no-path.")
-                        path = None
-
-                    if path is not None: #! A path has been found => compute its length
-
-                        # Your existing post-processing
-                        path_pruned = prune_near_duplicates(path, min_step=1e-3,
-                                                            weights=opt_par.weights_rrt, revolute_mask=revolute_mask)
-                        path_uniform = resample_path_by_count(path_pruned, target_points=60,
-                                                            weights=opt_par.weights_rrt, revolute_mask=revolute_mask)        
-
-                        # Compute the path length
-                        path_length = workspace_length_simple(cc, path_uniform, site_id = tool_tip_site_id)
-
-                    else: #! No path found: probably it did not exist
-                        path_length = 5 # 5 meters is surely a lot for the robot (penalization)
-
-                    # Update the total length
-                    total_length += path_length
-
-            # Impose to infinite the secondary objective
-            else:
-                total_length = 1e2
-
-            #! Return the priamry and secondary objectives for the leader
-            fit_lead_fol = total_length / (2 * np.pi * 0.85)
-            fit_lead_prim = float(np.mean(norms)) 
-
-            return fit_lead_prim, fit_lead_fol, best_configs
+            #! Compute metrics for the leader
+            fit_lead_prim = float(np.mean(tau_hat_abs)) 
+            fit_lead_sec = 1 - (counter_pieces_without_cols / n_targets)
+            
+            #* Results for a specific individual of the batch
+            return fit_lead_prim, fit_lead_sec, q_star
+        
     return run_simulation, model, data
 
 '''
@@ -364,40 +296,138 @@ if __name__ == "__main__":
         print("Running in headless mode (no GUI).")
 
     #! Black-box objective function minimized by TuRBO
+    initialization_counter = 0
+    individual_counter = 0
+    iteration_counter = 0
+    initial_fitness = 1e2
+    fit_batch = []  
+    configuration_batch = [] 
+    layout_batch = []
+    fit_trend = []
+    configurations_trend = [] 
+    layout_trend = []
+    best_so_far_fit_trend = []
+    best_so_far_configurations_trend = []
+    best_so_far_layout_trend = []
 
-    def decode(z, center, scale):  return center + scale * z
-    def objective_single(x_np_1d_scaled: np.ndarray) -> float:
+    def objective_single(adim_layout: np.ndarray) -> float:
 
-        #* Function evaluation through the simulator
-        center = (opt_par.ub_real + opt_par.lb_real) / 2.0
-        scale  = (opt_par.ub_real - opt_par.lb_real) / 2.0
-        x_np_1d = decode(x_np_1d_scaled, center, scale)
-        f_tau, f_path, *_ = run_sim(x_np_1d)
+        #* Access global variables
+        global initialization_counter, individual_counter, iteration_counter, initial_fitness
+        global fit_batch, configuration_batch, layout_batch, fit_trend, configurations_trend, layout_trend
+        global best_so_far_fit_trend, best_so_far_configurations_trend, best_so_far_layout_trend
 
-        #* Evaluate the overall fitness
-        fit = f_tau * opt_par.weights_leader[0] + f_path * opt_par.weights_leader[1]
+        if initialization_counter < opt_par.init_rand_points:
+            print(f"{fonts.green}Random initialization phase. Starting evaluation: {initialization_counter + 1}/{opt_par.init_rand_points}{fonts.reset}")
+            initialization_counter += 1
+        else:
+            if opt_par.verbose: print(f"{fonts.red}Iteration: {iteration_counter}/{opt_par.n_desired_iterations}{fonts.reset}")
+            if opt_par.verbose: print(f"{fonts.cyan}Individual:{individual_counter + 1}/{opt_par.batch_size}{fonts.reset}")
+            individual_counter += 1
+
+        #* Simulate this layout (individual) for all the targets
+        layout = decode(adim_layout, opt_par.center, opt_par.scale)
+        if opt_par.verbose: print(f"{fonts.yellow}The layout to be tested is: {layout}{fonts.reset}")
+
+        #* Fitness for this individual
+        if opt_par.mode == "debugging":
+            fit = random.random()  # Placeholder for testing
+            q_star = np.zeros((len(complete_query()[1]), 6))  # Placeholder for testing
+        else:
+            f_tau, f_reach, q_star = run_sim(layout)
+            fit = f_tau * opt_par.weights_leader[0] + f_reach * opt_par.weights_leader[1]
+
+        #* Augment datasets for the batch
+        fit_batch.append(fit)
+        configuration_batch.append(q_star)
+        layout_batch.append(layout)
+
+        #* Check if a batch is over
+        if (initialization_counter == opt_par.init_rand_points) and (individual_counter % opt_par.batch_size == 0):  
+
+            #* if the procedure has already finished initialization       
+            if iteration_counter != 0:
+                if opt_par.verbose: print(f"{fonts.blue}Update the iteration counter.{fonts.reset}")
+                best_idx = np.argmin(fit_batch)
+                fit_trend.append(fit_batch[best_idx])
+                configurations_trend.append(configuration_batch[best_idx])
+                layout_trend.append(layout_batch[best_idx])
+
+                #! Best-so-far trend:
+                if fit_batch[best_idx] < initial_fitness: #* Case 1: improvement
+                    initial_fitness = fit_batch[best_idx]
+                    best_so_far_fit_trend.append(initial_fitness)
+                    best_so_far_configurations_trend.append(configuration_batch[best_idx])
+                    best_so_far_layout_trend.append(layout_batch[best_idx])
+                else: #* Case 2: no improvement
+                    best_so_far_fit_trend.append(best_so_far_fit_trend[-1])
+                    best_so_far_configurations_trend.append(best_so_far_configurations_trend[-1])
+                    best_so_far_layout_trend.append(best_so_far_layout_trend[-1])
+
+                #* Display the status
+                print(f"{fonts.green}Iteration: {iteration_counter}; Best so far: {best_so_far_fit_trend[-1]}{fonts.reset}")
+            
+            # Reset counters and batches
+            individual_counter = 0
+            iteration_counter += 1
+            fit_batch = []
+            configuration_batch = []
+            layout_batch = []
 
         return float(fit)
   
     #! Optimization
-    max_evals = opt_par.init_rand_points + opt_par.n_desired_iterations * opt_par.batch_size
     turbo = TurboM(
         f = objective_single,
         lb = np.ones(opt_par.d) * -1.0,
         ub = np.ones(opt_par.d) * 1.0,
         n_init = opt_par.init_rand_points,
-        max_evals = max_evals,
+        max_evals = opt_par.max_evals,
         batch_size = opt_par.batch_size,
         verbose = False,
-        use_ard = False,
+        use_ard = True,
         device = 'cuda',
         n_training_steps = opt_par.n_training_steps,
         n_trust_regions = opt_par.n_trust_regions
     )
-
+    start_time = time.time()
     turbo.optimize() #* Run the optimization
+    elapsed_time = time.time() - start_time
+    print(f"{fonts.green_light}Optimization completed in: {elapsed_time:.2f} seconds{fonts.reset}")
 
-    print("Optimization completed.")
+    if opt_par.verbose:
+        print(f"{fonts.cyan}Best per iteration: {fit_trend}{fonts.reset}")
+        print(f"{fonts.red}Best so far: {best_so_far_fit_trend}{fonts.reset}")
+
+    #! Save data
+    # Fitness trend
+    df_fit = pd.DataFrame(best_so_far_fit_trend, columns=["fitness"])
+    df_fit.to_csv(os.path.join(save_dir, opt_par.csv_directory, f"fitness.csv"), index=False)
+
+    # Best joint configurations trend
+    configs = np.array(best_so_far_configurations_trend)  # shape: (n_iters, n_targets, n_joints)
+    n_iters, n_targets, n_joints = configs.shape
+
+    # Flatten each (n_targets, n_joints) into a 1D vector (length = n_targets * n_joints)
+    configs_flat = configs.reshape(n_iters, n_targets * n_joints)
+
+    # Build meaningful column names: target_0_joint_0, target_0_joint_1, ...
+    columns = [
+        f"t{t}_j{j+1}"
+        for t in range(n_targets)
+        for j in range(n_joints)
+    ]
+
+    df_configs = pd.DataFrame(configs_flat, columns=columns)
+    df_configs.to_csv(os.path.join(save_dir, opt_par.csv_directory, "best_joints_configs.csv"), index=False)
+
+    # Best layout trend
+    df_layout = pd.DataFrame(best_so_far_layout_trend, columns=["xb", "yb"])
+    df_layout.to_csv(os.path.join(save_dir, opt_par.csv_directory, f"best_layout.csv"), index=False)
+
+
+
+
 
 
 

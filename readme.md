@@ -12,19 +12,17 @@ To better visualize the code, we highly recommend the free extension 'better com
 
 ---
 
-### **Project structure** 🗂️ <a name="Structure"></a> 
+### **Overall structure** 🗂️ <a name="Overall structure"></a> 
 This project relies on utilities for mujoco ([link](https://github.com/ChristianCella/ur5e_utils_mujoco.git)) and an IK solver ([link](https://github.com/ChristianCella/ikflow.git)), as depicted in the following:
 
 ```
 ├── ikflow/       # Normalizing flow for Inverse Kinematics
-├── TuRBO/       # Package for Bayesian Optimization
+├── TuRBO/        # Package for Bayesian Optimization
 ├── ur5e_utils_mujoco/           # utilities for mujoco and ikflow 
+    ├── assets/
     ├── ...
-    ├── simple_obstacles/
-    ├── ur5e/
-        ├── ...
-        ├── ur5e.xml
-        ├── ur5e.urdf
+    ├── bringup_ur5e.xml
+    ├── temp_scene.xml
 └── workcell_optimization/       # Shared package to optimize robotic applications  
 ```
 
@@ -48,7 +46,7 @@ git clone https://github.com/ChristianCella/TuRBO.git
     source .venv/bin/activate
     pip install -r requirements.txt
     ```
-    NOTE: Be sure to have all the required packages (CUDA in particular. If some problems arise, look at the Troubleshooting section).
+    NOTE: Be sure to have all the required packages (CUDA in particular. If some problems arise, look at the [**Troubleshooting**](#Troubleshooting) section).
 
 - #### **Ikflow** 🦿 <a name="ikflow"></a> 
 
