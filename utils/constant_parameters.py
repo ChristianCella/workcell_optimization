@@ -25,8 +25,9 @@ class OptimizationParameters:
     # Control variables
     verbose: bool = False # Display messages
     show_pose_duration: int = 0.05  # Seconds to show each pose
-    activate_gui : bool = False  # Activate the GUI for visualization
+    activate_gui : bool = True  # Activate the GUI for visualization
     mode: str = "optimization" # Either "debugging" or "optimization"
+    theta: int = 1 # Switch variable; theta = 1 => one overall optimization; theta = 0 => clusterized optimization
 
     # Ikflow variables
     Ns: int = 25  # Samples per 'discretized' pose configuration
@@ -34,9 +35,9 @@ class OptimizationParameters:
     
     # TuRBO variables
     d: int = 2
-    init_rand_points: int = 2
+    init_rand_points: int = 1
     batch_size: int = 3
-    n_desired_iterations: int = 5
+    n_desired_iterations: int = 2
     n_trust_regions: int = 3
     n_training_steps: int = 50
     lb_real: np.ndarray = field(default_factory=lambda: np.array([-0.3, -0.3]))

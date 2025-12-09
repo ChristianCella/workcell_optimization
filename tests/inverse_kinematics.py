@@ -16,8 +16,8 @@ ur5e_utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../
 utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(utils_dir)
 import fonts
-from transformations import rotm_to_quaternion, get_homogeneous_matrix, quaternion_to_euler, get_cartesian_pose
-from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, scene_manager
+from transformations import rotm_to_quaternion, get_homogeneous_matrix, quaternion_to_euler
+from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, scene_manager, get_cartesian_pose
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 from constant_parameters import TestIkFlow
 
@@ -158,7 +158,7 @@ def main():
             # Now, update the scene also for the extension tool (if any)
             if params.mode == "full":
                 if tool_id != "gripper_hande":
-                    pos, quat = get_cartesian_pose(tool_tip_body_id, data)
+                    pos, quat = get_cartesian_pose(tool_tip_body_id, data, "quaternion")
                     eul = quaternion_to_euler(quat, degrees=False)
                     _, _, A_w_et = get_homogeneous_matrix(pos[0], pos[1], pos[2], np.degrees(eul[0]), np.degrees(eul[1]), np.degrees(eul[2]))
                     A_w_eb = A_w_et @ np.linalg.inv(A_eb_et)

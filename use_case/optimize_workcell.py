@@ -53,11 +53,7 @@ Functions for the optimization.
 def decode(z, center, scale):  return center + scale * z
 
 #! Wrapper to use mujoco APIs during the optimization
-def make_simulator():
-
-    # Query the database
-    n_targets, targets_poses, world_wrenches, tool_ids = complete_query()
-    world_wrenches = [np.array(w) if w is not None else np.zeros(6) for w in world_wrenches]
+def make_simulator(n_targets, targets_poses, world_wrenches, tool_ids):
 
     # Path setup 
     model_path = scene_manager("full", n_targets, ur5e_utils_dir, "bringup_ur5e.xml", "extension.xml")
@@ -80,7 +76,7 @@ def make_simulator():
         A_w_p[:3, :3] = R.from_euler('XYZ', [tetax, tetay, tetaz], degrees=False).as_matrix()
         set_body_pose(model, data, body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
-    # Get body/site IDs
+    # Get body & site IDs
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_base") 
     tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_tip")
@@ -103,7 +99,6 @@ def make_simulator():
         q0 = rob_par.home_configuration.copy()
         data.qpos[:rob_par.nu] = q0.tolist()
         mujoco.mj_forward(model, data)
-        #if opt_par.activate_gui: viewer.sync()
       
         # Optimization for one individual of the batch
         tau_hat_abs = [] 
@@ -283,147 +278,191 @@ Optimization of the workcell layout.
 '''
 if __name__ == "__main__":
 
-    #! Create the simulation
-    run_sim, model, data = make_simulator()
+    #* Query the database
+    n_targets, targets_poses, world_wrenches, tool_ids, clusters = complete_query()
+    world_wrenches = [np.array(w) if w is not None else np.zeros(6) for w in world_wrenches]
 
-    #* MuJoCO viewer
-    viewer = None
-    if opt_par.activate_gui: # Activate GUI 
-        import mujoco.viewer
-        viewer = mujoco.viewer.launch_passive(model, data)
-        input("Press Enter to start optimization…")
-    else: # No GUI needed
-        print("Running in headless mode (no GUI).")
+    if opt_par.theta == 1: #! One single optimization
+        list_n_targets       = [n_targets]
+        list_target_poses    = [targets_poses]
+        list_world_wrenches  = [world_wrenches]
+        list_tool_ids       = [tool_ids]
+        print(f"The optimziation lasts for {len(list_n_targets)} iterations")
 
-    #! Black-box objective function minimized by TuRBO
-    initialization_counter = 0
-    individual_counter = 0
-    iteration_counter = 0
-    initial_fitness = 1e2
-    fit_batch = []  
-    configuration_batch = [] 
-    layout_batch = []
-    fit_trend = []
-    configurations_trend = [] 
-    layout_trend = []
-    best_so_far_fit_trend = []
-    best_so_far_configurations_trend = []
-    best_so_far_layout_trend = []
+    elif opt_par.theta == 0: #! Optimization for clusters of targets
+        #* Organize targets by clusters
+        unique_clusters = sorted(set(clusters)) 
+        cluster_idx = {c: i for i, c in enumerate(unique_clusters)}
 
-    def objective_single(adim_layout: np.ndarray) -> float:
+        list_n_targets       = [0] * len(unique_clusters)  
+        list_target_poses    = [[] for _ in unique_clusters]
+        list_world_wrenches  = [[] for _ in unique_clusters]
+        list_tool_ids       = [[] for _ in unique_clusters]
 
-        #* Access global variables
-        global initialization_counter, individual_counter, iteration_counter, initial_fitness
-        global fit_batch, configuration_batch, layout_batch, fit_trend, configurations_trend, layout_trend
-        global best_so_far_fit_trend, best_so_far_configurations_trend, best_so_far_layout_trend
+        for pose, wrench, cl, id in zip(targets_poses, world_wrenches, clusters, tool_ids):
+            idx = cluster_idx[cl]         
+            list_n_targets[idx] += 1
+            list_target_poses[idx].append(pose)
+            list_world_wrenches[idx].append(wrench)
+            list_tool_ids[idx].append(id)
+        print(f"The optimziation lasts for {len(list_n_targets)} iterations")
+    else:
+        raise ValueError("opt_par.theta must be either 0 or 1.")
+     
+    total_iterations = len(list_n_targets)
 
-        if initialization_counter < opt_par.init_rand_points:
-            print(f"{fonts.green}Random initialization phase. Starting evaluation: {initialization_counter + 1}/{opt_par.init_rand_points}{fonts.reset}")
-            initialization_counter += 1
-        else:
-            if opt_par.verbose: print(f"{fonts.red}Iteration: {iteration_counter}/{opt_par.n_desired_iterations}{fonts.reset}")
-            if opt_par.verbose: print(f"{fonts.cyan}Individual:{individual_counter + 1}/{opt_par.batch_size}{fonts.reset}")
-            individual_counter += 1
+    #! Complete optimization
+    for iter_opt in range(total_iterations):
+        
+        print(f"{fonts.purple}Current global iteration:{iter_opt+1}/{total_iterations}{fonts.reset}")
 
-        #* Simulate this layout (individual) for all the targets
-        layout = decode(adim_layout, opt_par.center, opt_par.scale)
-        if opt_par.verbose: print(f"{fonts.yellow}The layout to be tested is: {layout}{fonts.reset}")
+        #* Set the wrapper to valuate one layout 
+        run_sim, model, data = make_simulator(n_targets=list_n_targets[iter_opt], targets_poses=list_target_poses[iter_opt], world_wrenches=list_world_wrenches[iter_opt], tool_ids=list_tool_ids[iter_opt])
 
-        #* Fitness for this individual
-        if opt_par.mode == "debugging":
-            fit = random.random()  # Placeholder for testing
-            q_star = np.zeros((len(complete_query()[1]), 6))  # Placeholder for testing
-        else:
-            f_tau, f_reach, q_star = run_sim(layout)
-            fit = f_tau * opt_par.weights_leader[0] + f_reach * opt_par.weights_leader[1]
+        #* MuJoCO viewer
+        viewer = None
+        if opt_par.activate_gui: # Activate GUI 
+            import mujoco.viewer
+            viewer = mujoco.viewer.launch_passive(model, data)
+            input("Press Enter to start optimization…")
+        else: # No GUI needed
+            print("Running in headless mode (no GUI).")
 
-        #* Augment datasets for the batch
-        fit_batch.append(fit)
-        configuration_batch.append(q_star)
-        layout_batch.append(layout)
+        #! Black-box objective function minimized by TuRBO
+        initialization_counter = 0
+        individual_counter = 0
+        iteration_counter = 0
+        initial_fitness = 1e2
+        fit_batch = []  
+        configuration_batch = [] 
+        layout_batch = []
+        fit_trend = []
+        configurations_trend = [] 
+        layout_trend = []
+        best_so_far_fit_trend = []
+        best_so_far_configurations_trend = []
+        best_so_far_layout_trend = []
 
-        #* Check if a batch is over
-        if (initialization_counter == opt_par.init_rand_points) and (individual_counter % opt_par.batch_size == 0):  
+        def objective_single(adim_layout: np.ndarray) -> float:
 
-            #* if the procedure has already finished initialization       
-            if iteration_counter != 0:
-                if opt_par.verbose: print(f"{fonts.blue}Update the iteration counter.{fonts.reset}")
-                best_idx = np.argmin(fit_batch)
-                fit_trend.append(fit_batch[best_idx])
-                configurations_trend.append(configuration_batch[best_idx])
-                layout_trend.append(layout_batch[best_idx])
+            #* Define varibales as global to keep their values across calls
+            global initialization_counter, individual_counter, iteration_counter, initial_fitness
+            global fit_batch, configuration_batch, layout_batch, fit_trend, configurations_trend, layout_trend
+            global best_so_far_fit_trend, best_so_far_configurations_trend, best_so_far_layout_trend
 
-                #! Best-so-far trend:
-                if fit_batch[best_idx] < initial_fitness: #* Case 1: improvement
-                    initial_fitness = fit_batch[best_idx]
-                    best_so_far_fit_trend.append(initial_fitness)
-                    best_so_far_configurations_trend.append(configuration_batch[best_idx])
-                    best_so_far_layout_trend.append(layout_batch[best_idx])
-                else: #* Case 2: no improvement
-                    best_so_far_fit_trend.append(best_so_far_fit_trend[-1])
-                    best_so_far_configurations_trend.append(best_so_far_configurations_trend[-1])
-                    best_so_far_layout_trend.append(best_so_far_layout_trend[-1])
+            if initialization_counter < opt_par.init_rand_points:
+                print(f"{fonts.green}Random initialization phase. Starting evaluation: {initialization_counter + 1}/{opt_par.init_rand_points}{fonts.reset}")
+                initialization_counter += 1
+            else:
+                if opt_par.verbose: print(f"{fonts.red}Iteration: {iteration_counter}/{opt_par.n_desired_iterations}{fonts.reset}")
+                if opt_par.verbose: print(f"{fonts.cyan}Individual:{individual_counter + 1}/{opt_par.batch_size}{fonts.reset}")
+                individual_counter += 1
 
-                #* Display the status
-                print(f"{fonts.green}Iteration: {iteration_counter}; Best so far: {best_so_far_fit_trend[-1]}{fonts.reset}")
-            
-            # Reset counters and batches
-            individual_counter = 0
-            iteration_counter += 1
-            fit_batch = []
-            configuration_batch = []
-            layout_batch = []
+            #* Simulate this layout (individual) for all the targets
+            layout = decode(adim_layout, opt_par.center, opt_par.scale)
+            if opt_par.verbose: print(f"{fonts.yellow}The layout to be tested is: {layout}{fonts.reset}")
 
-        return float(fit)
-  
-    #! Optimization
-    turbo = TurboM(
-        f = objective_single,
-        lb = np.ones(opt_par.d) * -1.0,
-        ub = np.ones(opt_par.d) * 1.0,
-        n_init = opt_par.init_rand_points,
-        max_evals = opt_par.max_evals,
-        batch_size = opt_par.batch_size,
-        verbose = False,
-        use_ard = True,
-        device = 'cuda',
-        n_training_steps = opt_par.n_training_steps,
-        n_trust_regions = opt_par.n_trust_regions
-    )
-    start_time = time.time()
-    turbo.optimize() #* Run the optimization
-    elapsed_time = time.time() - start_time
-    print(f"{fonts.green_light}Optimization completed in: {elapsed_time:.2f} seconds{fonts.reset}")
+            #* Fitness for this individual
+            if opt_par.mode == "debugging":
+                fit = random.random()  # Placeholder for testing
+                q_star = np.zeros((len(complete_query()[1]), 6))  # Placeholder for testing
+            else:
+                f_tau, f_reach, q_star = run_sim(layout)
+                fit = f_tau * opt_par.weights_leader[0] + f_reach * opt_par.weights_leader[1]
 
-    if opt_par.verbose:
-        print(f"{fonts.cyan}Best per iteration: {fit_trend}{fonts.reset}")
-        print(f"{fonts.red}Best so far: {best_so_far_fit_trend}{fonts.reset}")
+            #* Augment datasets for the batch
+            fit_batch.append(fit)
+            configuration_batch.append(q_star)
+            layout_batch.append(layout)
 
-    #! Save data
-    # Fitness trend
-    df_fit = pd.DataFrame(best_so_far_fit_trend, columns=["fitness"])
-    df_fit.to_csv(os.path.join(save_dir, opt_par.csv_directory, f"fitness.csv"), index=False)
+            #* Check if a batch has been filled
+            if (initialization_counter == opt_par.init_rand_points) and (individual_counter % opt_par.batch_size == 0):  
 
-    # Best joint configurations trend
-    configs = np.array(best_so_far_configurations_trend)  # shape: (n_iters, n_targets, n_joints)
-    n_iters, n_targets, n_joints = configs.shape
+                #* if the procedure has already finished initialization       
+                if iteration_counter != 0:
+                    if opt_par.verbose: print(f"{fonts.blue}Update the iteration counter.{fonts.reset}")
+                    best_idx = np.argmin(fit_batch)
+                    fit_trend.append(fit_batch[best_idx])
+                    configurations_trend.append(configuration_batch[best_idx])
+                    layout_trend.append(layout_batch[best_idx])
 
-    # Flatten each (n_targets, n_joints) into a 1D vector (length = n_targets * n_joints)
-    configs_flat = configs.reshape(n_iters, n_targets * n_joints)
+                    #! Best-so-far trend:
+                    if fit_batch[best_idx] < initial_fitness: #* Case 1: improvement
+                        initial_fitness = fit_batch[best_idx]
+                        best_so_far_fit_trend.append(initial_fitness)
+                        best_so_far_configurations_trend.append(configuration_batch[best_idx])
+                        best_so_far_layout_trend.append(layout_batch[best_idx])
+                    else: #* Case 2: no improvement
+                        best_so_far_fit_trend.append(best_so_far_fit_trend[-1])
+                        best_so_far_configurations_trend.append(best_so_far_configurations_trend[-1])
+                        best_so_far_layout_trend.append(best_so_far_layout_trend[-1])
 
-    # Build meaningful column names: target_0_joint_0, target_0_joint_1, ...
-    columns = [
-        f"t{t}_j{j+1}"
-        for t in range(n_targets)
-        for j in range(n_joints)
-    ]
+                    #* Display the status
+                    print(f"{fonts.green}Iteration: {iteration_counter}; Best so far: {best_so_far_fit_trend[-1]}{fonts.reset}")
+                
+                #* Reset counters and batches
+                individual_counter = 0
+                iteration_counter += 1
+                fit_batch = []
+                configuration_batch = []
+                layout_batch = []
 
-    df_configs = pd.DataFrame(configs_flat, columns=columns)
-    df_configs.to_csv(os.path.join(save_dir, opt_par.csv_directory, "best_joints_configs.csv"), index=False)
+            return float(fit)
+    
+        #! Optimization
+        turbo = TurboM(
+            f = objective_single,
+            lb = np.ones(opt_par.d) * -1.0,
+            ub = np.ones(opt_par.d) * 1.0,
+            n_init = opt_par.init_rand_points,
+            max_evals = opt_par.max_evals,
+            batch_size = opt_par.batch_size,
+            verbose = False,
+            use_ard = True,
+            device = 'cuda',
+            n_training_steps = opt_par.n_training_steps,
+            n_trust_regions = opt_par.n_trust_regions
+        )
+        start_time = time.time()
+        turbo.optimize() 
+        elapsed_time = time.time() - start_time
+        print(f"{fonts.green_light}Optimization completed in: {elapsed_time:.2f} seconds{fonts.reset}")
 
-    # Best layout trend
-    df_layout = pd.DataFrame(best_so_far_layout_trend, columns=["xb", "yb"])
-    df_layout.to_csv(os.path.join(save_dir, opt_par.csv_directory, f"best_layout.csv"), index=False)
+        if opt_par.verbose:
+            print(f"{fonts.cyan}Best per iteration: {fit_trend}{fonts.reset}")
+            print(f"{fonts.red}Best so far: {best_so_far_fit_trend}{fonts.reset}")
+
+        #! Save data
+
+        # Fitness trend
+        df_fit = pd.DataFrame(best_so_far_fit_trend, columns=["fitness"])
+        df_fit.to_csv(os.path.join(save_dir, opt_par.csv_directory, f"fitness_cluster_{iter_opt+1}.csv"), index=False)
+
+        # Best joint configurations trend
+        configs = np.array(best_so_far_configurations_trend)  # shape: (n_iters, n_targets, n_joints)
+        n_iters, n_targets, n_joints = configs.shape
+
+        # Flatten each (n_targets, n_joints) into a 1D vector (length = n_targets * n_joints)
+        configs_flat = configs.reshape(n_iters, n_targets * n_joints)
+
+        # Build meaningful column names: target_0_joint_0, target_0_joint_1, ...
+        columns = [
+            f"t{t}_j{j+1}"
+            for t in range(n_targets)
+            for j in range(n_joints)
+        ]
+
+        df_configs = pd.DataFrame(configs_flat, columns=columns)
+        df_configs.to_csv(os.path.join(save_dir, opt_par.csv_directory, f"best_joints_configs_cluster_{iter_opt+1}.csv"), index=False)
+
+        # Best layout trend
+        df_layout = pd.DataFrame(best_so_far_layout_trend, columns=["xb", "yb"])
+        df_layout.to_csv(os.path.join(save_dir, opt_par.csv_directory, f"best_layout_cluster_{iter_opt+1}.csv"), index=False)
+
+        # NOTE: close viewer before next iteration
+        if viewer is not None:
+            viewer.close()
+            viewer = None
 
 
 

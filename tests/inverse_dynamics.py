@@ -11,7 +11,7 @@ from scipy.spatial.transform import Rotation as R
 # Append the path to 'utils'
 utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(utils_dir)
-from transformations import rotm_to_quaternion, get_world_wrench, get_homogeneous_matrix
+from transformations import rotm_to_quaternion, get_homogeneous_matrix
 from mujoco_utils import set_body_pose, compute_jacobian, scene_manager
 import fonts
 

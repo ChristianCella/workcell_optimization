@@ -30,19 +30,49 @@ _, _, A_wl3_ee = get_homogeneous_matrix(0, 0.1, 0, -90, 0, 0)
 _, _, A_eb_et = get_homogeneous_matrix(0, 0, tool_par.extension_offset, 0, 0, 0)
 
 # Query the database
-n_targets, targets_poses, world_wrenches, tool_ids = complete_query()
+n_targets, targets_poses, world_wrenches, tool_ids, clusters = complete_query()
 world_wrenches = [np.array(w) if w is not None else np.zeros(6) for w in world_wrenches]
 
+if opt_par.theta == 1: #! One single optimization
+    list_n_targets       = [n_targets]
+    list_target_poses    = [targets_poses]
+    list_world_wrenches  = [world_wrenches]
+    list_tool_ids       = [tool_ids]
+    print(f"The optimziation lasts for {len(list_n_targets)} iterations")
+
+elif opt_par.theta == 0: #! Optimization for clusters of targets
+    #* Organize targets by clusters
+    unique_clusters = sorted(set(clusters)) 
+    cluster_idx = {c: i for i, c in enumerate(unique_clusters)}
+
+    list_n_targets       = [0] * len(unique_clusters)  
+    list_target_poses    = [[] for _ in unique_clusters]
+    list_world_wrenches  = [[] for _ in unique_clusters]
+    list_tool_ids       = [[] for _ in unique_clusters]
+
+    for pose, wrench, cl, id in zip(targets_poses, world_wrenches, clusters, tool_ids):
+        idx = cluster_idx[cl]         
+        list_n_targets[idx] += 1
+        list_target_poses[idx].append(pose)
+        list_world_wrenches[idx].append(wrench)
+        list_tool_ids[idx].append(id)
+    print(f"The optimziation lasts for {len(list_n_targets)} iterations")
+else:
+    raise ValueError("opt_par.theta must be either 0 or 1.")
+
+# Cluster you want to visualize
+cluster_to_visualize = 1
+
 # Path setup 
-model_path = scene_manager("full", n_targets, ur5e_utils_dir, "bringup_ur5e.xml", "extension.xml")
+model_path = scene_manager("full", list_n_targets[cluster_to_visualize - 1], ur5e_utils_dir, "bringup_ur5e.xml", "extension.xml")
 model = mujoco.MjModel.from_xml_path(model_path)
 data  = mujoco.MjData(model)
 mujoco.mj_resetData(model, data)
 
 # Load files containing optimal results
 csv_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-layout_path = os.path.join(csv_dir, "results/optimization/best_layout.csv")
-configurations_path  = os.path.join(csv_dir, "results/optimization/best_joints_configs.csv")
+layout_path = os.path.join(csv_dir, f"results", f"{opt_par.mode}",f"best_layout_cluster_{cluster_to_visualize}.csv")
+configurations_path  = os.path.join(csv_dir, f"results", f"{opt_par.mode}",f"best_joints_configs_cluster_{cluster_to_visualize}.csv")
 
 df_layout = pd.read_csv(layout_path)
 df_configurations  = pd.read_csv(configurations_path)
@@ -78,11 +108,13 @@ for i in range(model.nbody):
     if name and name.startswith("reference_target_"):
         target_body_ids.append(i)
 
+target_poses = list_target_poses[cluster_to_visualize - 1]
+
 # Place the static targets in the scene
 for i, body_id in enumerate(target_body_ids): 
-    tetax, tetay, tetaz = quaternion_to_euler([targets_poses[i][6], targets_poses[i][3], targets_poses[i][4], targets_poses[i][5]], degrees=False)
+    tetax, tetay, tetaz = quaternion_to_euler([target_poses[i][6], target_poses[i][3], target_poses[i][4], target_poses[i][5]], degrees=False)
     A_w_p = np.eye(4)
-    A_w_p[:3, 3] = np.array([targets_poses[i][0], targets_poses[i][1], targets_poses[i][2]])
+    A_w_p[:3, 3] = np.array([target_poses[i][0], target_poses[i][1], target_poses[i][2]])
     A_w_p[:3, :3] = R.from_euler('XYZ', [tetax, tetay, tetaz], degrees=False).as_matrix()
     set_body_pose(model, data, body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
@@ -114,7 +146,7 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         data.ctrl[:] = 0
         mujoco.mj_forward(model, data)
 
-        tool_id = tool_ids[idx]
+        tool_id = list_tool_ids[cluster_to_visualize - 1][idx]
         if tool_id == "gripper_hande":
             gripper_length = tool_par.hande_offset
 
@@ -144,7 +176,7 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         # Jacobian at tool_site and frame conversions
         J = compute_jacobian(model, data, tool_tip_site_id)
         tau_g = data.qfrc_bias[:rob_par.nu]
-        tau_ext = J.T @ world_wrenches[idx][:]
+        tau_ext = J.T @ list_world_wrenches[cluster_to_visualize - 1][idx][:]
         tau_tot = (tau_ext + tau_g) / (rob_par.gear_ratios * rob_par.max_torques)
         norms.append(np.linalg.norm(tau_tot))
 

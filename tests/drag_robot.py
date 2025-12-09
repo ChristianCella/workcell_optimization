@@ -11,29 +11,20 @@ import tkinter as tk
 utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(utils_dir)
 import fonts
-from mujoco_utils import scene_manager
-from transformations import get_cartesian_pose
+from mujoco_utils import scene_manager, get_cartesian_pose
 
-# --------------------------------------------------
-# CONFIG
-# --------------------------------------------------
-# Choose control mode: "joints" or "cartesian"
-CONTROL_MODE = "cartesian"      # "joints" or "cartesian"
 
-# If using cartesian mode, specify the body name (as in the MJCF)
-CARTESIAN_BODY_NAME = "tool_tip_proxy"   # e.g. "tool_tip", "ee_link", etc.
-
-# Number of arm joints to control (for UR5e: 6)
+CONTROL_MODE = "joints" # "joints" or "cartesian"
+BODY_NAME = "tool_tip_proxy" 
 N_JOINTS = 6
-# --------------------------------------------------
 
 # Robot model path (your existing logic)
 ur5e_utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ur5e_utils_mujoco'))
 model_path = scene_manager("robot", 1, ur5e_utils_dir, "bringup_ur5e.xml", "extension.xml")
-# --------------------------------------------------
 
-
-# ---------- Rotation helpers (for Cartesian mode) ----------
+''' 
+Functions.
+'''
 
 def rpy_to_matrix(roll, pitch, yaw):
     """Convert roll, pitch, yaw (XYZ, in radians) to a 3x3 rotation matrix."""
@@ -56,9 +47,9 @@ def rpy_to_matrix(roll, pitch, yaw):
     # R = Rz * Ry * Rx
     return Rz @ Ry @ Rx
 
-
-# ---------- Viewer threads ----------
-
+''' 
+Viewer threads.
+'''
 def viewer_thread_joints(model, data, q_target, n_joints, running_flag):
     """Viewer thread: purely kinematic, joints set directly from q_target."""
     with mujoco.viewer.launch_passive(model, data) as viewer:
@@ -150,7 +141,7 @@ def viewer_thread_cartesian(model, data, body_id, p0, R0, pos_offset, rpy_offset
             if time.time() - last > 0.5:
                 q_deg = np.degrees(data.qpos[:n_joints])
                 # Get the forward kinematics at a specified frame
-                pos, quat = get_cartesian_pose(body_id, data)
+                pos, quat = get_cartesian_pose(body_id, data, "quaternion")
                 print(f"{fonts.green}FK: pos={np.round(pos, 3)}, quat={np.round(quat, 3)}{fonts.reset}")
                 print(f"{fonts.yellow}q (deg): {np.round(q_deg, 2)}{fonts.reset}")
                 last = time.time()
@@ -160,7 +151,9 @@ def viewer_thread_cartesian(model, data, body_id, p0, R0, pos_offset, rpy_offset
     running_flag["running"] = False
 
 
-# ---------- GUIs ----------
+''' 
+GUI functions.
+'''
 
 def create_gui_joints(model, data, q_target, n_joints, running_flag):
     """Tk GUI with 1 slider per joint (degrees)."""
@@ -281,8 +274,9 @@ def create_gui_cartesian(p_offset, rpy_offset, running_flag, body_name):
     root.protocol("WM_DELETE_WINDOW", on_close)
     root.mainloop()
 
-
-# ---------- MAIN ----------
+''' 
+Main function.
+'''
 
 def main():
     # Load model + data
@@ -323,9 +317,9 @@ def main():
 
     elif mode == "cartesian":
         # Cartesian mode
-        body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, CARTESIAN_BODY_NAME)
+        body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, BODY_NAME)
         if body_id < 0:
-            raise RuntimeError(f"Body '{CARTESIAN_BODY_NAME}' not found in model")
+            raise RuntimeError(f"Body '{BODY_NAME}' not found in model")
 
         mujoco.mj_forward(model, data)
         p0 = data.xpos[body_id].copy()
@@ -338,7 +332,7 @@ def main():
         n_joints = min(N_JOINTS, model.nq)
 
         print("\nKinematic CARTESIAN control with sliders")
-        print(f"  • Controlling body: {CARTESIAN_BODY_NAME}")
+        print(f"  • Controlling body: {BODY_NAME}")
         print("  • 3 sliders: dx, dy, dz (m)")
         print("  • 3 sliders: droll, dpitch, dyaw (deg)")
         print("  • Simple Jacobian IK moves joints so body tracks pose\n")
@@ -351,7 +345,7 @@ def main():
         )
         vt.start()
 
-        create_gui_cartesian(pos_offset, rpy_offset, running_flag, CARTESIAN_BODY_NAME)
+        create_gui_cartesian(pos_offset, rpy_offset, running_flag, BODY_NAME)
         running_flag["running"] = False
         vt.join(timeout=1.0)
 

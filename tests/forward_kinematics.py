@@ -13,8 +13,8 @@ from scipy.spatial.transform import Rotation as R
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
 import fonts
-from transformations import rotm_to_quaternion, get_homogeneous_matrix, get_cartesian_pose
-from mujoco_utils import set_body_pose, scene_manager
+from transformations import rotm_to_quaternion, get_homogeneous_matrix
+from mujoco_utils import set_body_pose, scene_manager, get_cartesian_pose
 from constant_parameters import TestIkFlow
 params = TestIkFlow()
 
@@ -57,7 +57,7 @@ def main():
         viewer.sync()
 
         # Get the forward kinematics at a specified frame
-        pos, quat = get_cartesian_pose(flange_body_id, data)
+        pos, quat = get_cartesian_pose(flange_body_id, data, "quaternion")
         print(f"FK: pos={np.round(pos, 3)}, quat={np.round(quat, 3)}")
 
         input("Press Enter to close the viewer…")

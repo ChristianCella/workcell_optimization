@@ -62,14 +62,14 @@ def get_panel_pose(panel_name):
 def get_tcp_frame(frame_id):
     conn = mariadb.connect(**DB_CONFIG)
     cursor = conn.cursor()
-    query = """SELECT tcp_frame, tcp_wrench, tool_id FROM robot_actions_list WHERE id = %s"""
+    query = """SELECT tcp_frame, tcp_wrench, tool_id, cluster FROM robot_actions_list WHERE id = %s"""
     cursor.execute(query, (frame_id,))
     result = cursor.fetchone()
     cursor.close()
     conn.close()
 
     if not result:
-        return "None", "None", "None"
+        return "None", "None", "None", "None"
 
     # Get the tcp_frame Cartesian coordinates
     tcp_frame = result[0].strip('{}')
@@ -86,7 +86,11 @@ def get_tcp_frame(frame_id):
 
     # Get the tool ID
     tool_id = result[2]
-    return frame_values, wrench_values, tool_id
+
+    # Get the clusters
+    cluster = result[3]
+
+    return frame_values, wrench_values, tool_id, cluster
 
 def complete_query():
 
@@ -94,10 +98,11 @@ def complete_query():
     n_targets = 0
     targets_poses = []
     world_wrenches = []
+    clusters = []
     tool_ids = []
 
     while not stop_acquisition:
-        tcp_frame, tcp_wrench, tool_id = get_tcp_frame(f"{n_targets + 1}")
+        tcp_frame, tcp_wrench, tool_id, cluster = get_tcp_frame(f"{n_targets + 1}")
         
         if tcp_frame == "None":
             stop_acquisition = True
@@ -105,6 +110,7 @@ def complete_query():
             n_targets += 1
             targets_poses.append(tcp_frame)
             tool_ids.append(tool_id)
+            clusters.append(cluster)
 
             # Convert wrench to NumPy array for consistent formatting
             if tcp_wrench is None:
@@ -112,7 +118,7 @@ def complete_query():
             else:
                 world_wrenches.append(np.array(tcp_wrench))
 
-    return n_targets, targets_poses, world_wrenches, tool_ids
+    return n_targets, targets_poses, world_wrenches, tool_ids, clusters
 
 if __name__ == "__main__":
     '''
@@ -128,10 +134,11 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {e}")
     '''
-    tcp_frame, wrench_values, tool_id = get_tcp_frame("25")
+    tcp_frame, wrench_values, tool_id, cluster = get_tcp_frame("21")
     print(f"TCP Frame: {tcp_frame}\n")
     print(f"Wrench Values: {wrench_values}\n")
     print(f"Tool ID: {tool_id}\n")
+    print(f"Cluster: {cluster}\n")
 
 
 
