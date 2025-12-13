@@ -97,6 +97,11 @@ To check the CUDA version installed you can run the command
 
 ---
 
+### **Paper** 📄 <a name="Paper"></a> 
+The paper in the [docs]() folder is currently under submission and has not been accepted yet. For this reason, it is highly confidential.
+
+---
+
 ### **Contacts** 📧 <a name="Contacts"></a> 
 <img align="center" height="40" src="https://avatars.githubusercontent.com/u/113984059?v=4"> Christian Cella: christian.cella@polimi.it
 

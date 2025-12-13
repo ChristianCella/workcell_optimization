@@ -25,8 +25,8 @@ class OptimizationParameters:
     # Control variables
     verbose: bool = False # Display messages
     show_pose_duration: int = 0.05  # Seconds to show each pose
-    activate_gui : bool = True  # Activate the GUI for visualization
-    mode: str = "optimization" # Either "debugging" or "optimization"
+    activate_gui : bool = False  # Activate the GUI for visualization
+    mode: str = "debugging" # Either "debugging" or "optimization"
     theta: int = 1 # Switch variable; theta = 1 => one overall optimization; theta = 0 => clusterized optimization
 
     # Ikflow variables
@@ -45,7 +45,6 @@ class OptimizationParameters:
 
     # Leader variables
     weights_leader: list = field(default_factory=lambda: [10.0, 0.5])
-    weights_rrt: np.ndarray = field(default_factory=lambda: np.ones(6, dtype=float))
 
     # Follower variables
     weights_follower: list = field(default_factory=lambda: [10.0, 0.5])
