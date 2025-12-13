@@ -98,7 +98,7 @@ To check the CUDA version installed you can run the command
 ---
 
 ### **Paper** 📄 <a name="Paper"></a> 
-The paper in the [docs]() folder is currently under submission and has not been accepted yet. For this reason, it is highly confidential.
+The paper in the [docs](https://github.com/ChristianCella/workcell_optimization/blob/txt_arto/docs/paper_ICRA26.pdf) folder is currently under submission and has not been accepted yet. For this reason, it is highly confidential.
 
 ---
 
