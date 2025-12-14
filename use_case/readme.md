@@ -20,7 +20,10 @@ The code ```optimize_workcell.py``` implements the complete framework, while ```
 ---
 
 ## Frames 🔴🟢🔵
-In the code, the variables A_i_j represent the homogneous matrices $\mathbf{A^i_j}$, expressing the roto-translation between the starting frame $\mathbf{\{h_i\}}$ and $\mathbf{\{h_j\}}$. The names are referred to the following ![scheme](images/frames.png).
+In the code, the variables A_i_j represent the homogneous matrices $\mathbf{A^i_j}$, expressing the roto-translation between the starting frame $\mathbf{\{h_i\}}$ and $\mathbf{\{h_j\}}$. The names are referred to the following scheme, 
+![image](../docs/images/frames.png)
+For how $\texttt{ikflow}$ is trained, it is able to give the joints $\mathbf{q}$ that correspond to the Cartesian pose of the frame $\texttt{wrist\_3\_link}$. However, usually the tool is attached (or roto-translated) with respect to $\texttt{ee\_flange}$. For this reason, in the code we define the fixed matrix $\mathbf{A^{wl3}_{ee}}$. For the gripper, $\texttt{tool\_tip\_proxy}$ is introduced to have know the grasping point in case that the extension is not needed ("targets" mode in ```scene_manager```), and its trasnfomation is fixed with respect to $\texttt{tool\_base}$. $\texttt{tool\_tip}$ is the body that is actually updated as a function of the parameters in $\mathbf{A^{t1}_t}$.
+In case the extension is needed, to place it in the scene, it must be specified where to position $\texttt{ext\_base}$ in the world frame. To do so, the function ```get_cartesian_pose``` allows to retrieve $\mathbf{A^w_t}$. Since the frames $\texttt{tool\_tip}$ and $\texttt{ext\_tip}$ must coincide, $\mathbf{A^w_{eb}}=\mathbf{A^w_t}\cdot(\mathbf{A^{eb}_{et}})^{-1}$, with $\mathbf{A^{eb}_{et}}$ that is fixed for the extension.
 
 ---
 
