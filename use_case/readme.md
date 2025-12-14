@@ -20,7 +20,7 @@ The code ```optimize_workcell.py``` implements the complete framework, while ```
 ---
 
 ## Frames 🔴🟢🔵
-In the code, the variables A_i_j represent the homogneous matrices $\mathbf{A^i_j}$, expressing the roto-translation between the starting frame $\mathbf{\{h_i\}}$ and $\mathbf{\{h_j\}}$. The names are referred to the following scheme.
+In the code, the variables A_i_j represent the homogneous matrices $\mathbf{A^i_j}$, expressing the roto-translation between the starting frame $\mathbf{\{h_i\}}$ and $\mathbf{\{h_j\}}$. The names are referred to the following ![scheme](images/frames.png).
 
 ---
 
