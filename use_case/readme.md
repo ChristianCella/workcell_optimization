@@ -43,6 +43,7 @@ In addition, despite the code is structured as visible in Algs. 1-2 of the assoc
 - ```run_sim```, defined inisde the previous, executes one simulation and returns the fitness value. This function can be called at a later stage with different layout parameters.
 - ```objective_single``` is the black-box objective function of the leader problem leveraged by TuRBO to evaluate the process. It runs ```run_sim```, retrieves the primary and secondary metrics of the leader for each individual of the batch, for each batch until the number of iterations is over. 
 - ```decode``` allows to restore the phyisical meaning of the optimization variables (TuRBO works on an a-dimensional domain $\in [-1;1]$)
+- ```scene_manager``` creates the scenes for each cluster of target frames to analyze. It is defined in [mujoco_utils.py](https://github.com/ChristianCella/workcell_optimization/blob/txt_arto/utils/mujoco_utils.py);
 
 Finally, unlike most optimization schemes, TuRBO must be fed with the maximum number of evaluations (```max_evals```), rather than with the desired number of iterations ```n_desired_iterations```. The most important parameters are:
 
