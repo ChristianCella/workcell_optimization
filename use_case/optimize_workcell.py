@@ -55,7 +55,7 @@ def decode(z, center, scale):  return center + scale * z
 #! Wrapper to use mujoco APIs during the optimization
 def make_simulator(n_targets, targets_poses, world_wrenches, tool_ids):
 
-    # Path setup 
+    # Path setup (always use "full")
     model_path = scene_manager("full", n_targets, ur5e_utils_dir, "bringup_ur5e.xml", "extension.xml")
     model = mujoco.MjModel.from_xml_path(model_path)
     data  = mujoco.MjData(model)
@@ -134,7 +134,7 @@ def make_simulator(n_targets, targets_poses, world_wrenches, tool_ids):
                 tool_id = tool_ids[j]
                 if tool_id == "gripper_hande":
                     gripper_length = tool_par.hande_offset
-                    task_redundancy = 2
+                    task_redundancy = 2 #* Only 2 possible ways of grasping with the hande
 
                     # In case of gripper alone, move the extension away
                     _, _, A_w_et = get_homogeneous_matrix(tool_par.detachment_pose[0], tool_par.detachment_pose[1], tool_par.detachment_pose[2], tool_par.detachment_pose[3], tool_par.detachment_pose[4], tool_par.detachment_pose[5])
@@ -143,7 +143,7 @@ def make_simulator(n_targets, targets_poses, world_wrenches, tool_ids):
                     mujoco.mj_forward(model, data)
                 elif tool_id == "FingerTool":   
                     gripper_length = tool_par.extension_offset + tool_par.hande_offset
-                    task_redundancy = opt_par.Nd
+                    task_redundancy = opt_par.Nd #* Many different ways of using the Finger extension
 
                 # Set tip frame
                 _, _, A_t1_t = get_homogeneous_matrix(0, 0, gripper_length, 0, 0, 0)
@@ -251,6 +251,9 @@ def make_simulator(n_targets, targets_poses, world_wrenches, tool_ids):
                 # ! Compute the torques for the best configuration
                 J = compute_jacobian(model, data, tool_tip_site_id)
                 tau_g = data.qfrc_bias[:rob_par.nu]
+                #* R_tool_to_world = data.site_xmat[tool_tip_site_id].reshape(3, 3) # If the local wrench was given instead
+                #* world_wrench = get_world_wrench(R_tool_to_world, local_wrenches[j][:])
+                #* tau_ext = J.T @ world_wrenches
                 tau_ext = J.T @ world_wrenches[j][:]
                 tau_tot = (tau_ext + tau_g) / (rob_par.gear_ratios * rob_par.max_torques)
 

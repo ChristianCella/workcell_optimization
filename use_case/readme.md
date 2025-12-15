@@ -1,4 +1,4 @@
-# Use case 🧩
+# Use case 🕹️
 The goal of the files in this folder is to implement the layout optimization process. The algorithm determines the optimal coordinates $x_b$ and $y_b$ of the robot base (in the world coordinates) such that the manipulator can exert the prescribed wrench at each target location (both queried from a database), at the expense of the smallest possible set of joint torques (main goal of the optimization).
 
 The two problems ($\textit{i.e.,}$ torque minimization and optimal joints configuration) can be arranged according to the leader-follower paradigm:
