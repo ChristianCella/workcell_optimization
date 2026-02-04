@@ -66,16 +66,16 @@ def main():
     wrist_3_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "wrist_3_link")
 
     # Set robot base (matrix A^w_b)
-    t_w_b = np.array([0.1, -0.45, 0.2])
-    R_w_b = R.from_euler('XYZ', [np.radians(-45), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+    t_w_b = np.array([0.0, 0, 0.2])
+    R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
     A_w_b = np.eye(4)
     A_w_b[:3, 3] = t_w_b
     A_w_b[:3, :3] = R_w_b
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-    t_ee_t1 = np.array([0, 0.15, 0]) # 0, 0.15, 0
-    R_ee_t1 = R.from_euler('XYZ', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix() # 30, 0, 0
+    t_ee_t1 = np.array([0, 0.15, 0.1]) # 0, 0.15, 0
+    R_ee_t1 = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix() # 30, 0, 0
     A_ee_t1 = np.eye(4)
     A_ee_t1[:3, 3] = t_ee_t1
     A_ee_t1[:3, :3] = R_ee_t1
@@ -93,10 +93,10 @@ def main():
     set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
     # Piece in the world (define A^w_p) => this is also used to put the frame in space  
-    theta_w_p_x_0 = np.radians(-90)
+    theta_w_p_x_0 = np.radians(180)
     theta_w_p_y_0 = np.radians(0)
     theta_w_p_z_0 = np.radians(0)
-    t_w_p = np.array([0.4, 0.4, 0.25]) # [0.2, 0.2, 0.2]
+    t_w_p = np.array([0.4, 0.4, 0.1]) # [0.2, 0.2, 0.2]
     R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
     A_w_p = np.eye(4)
     A_w_p[:3, 3] = t_w_p
