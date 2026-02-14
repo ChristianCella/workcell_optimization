@@ -46,8 +46,8 @@ def controller(Kp, Kd, Ki, q_desired, q_current, qd_current, error_integral, dt)
 
 def set_joint_configuration(data, model, desired_qpos):
     # Set the position and velocity to 0
-    data.qpos[:7] = desired_qpos.copy()
-    data.qvel[:7] = 0.0
+    data.qpos[:6] = desired_qpos.copy()
+    data.qvel[:6] = 0.0
     mujoco.mj_forward(model, data)
     data.qacc[:] = 0.0
 
@@ -56,7 +56,6 @@ def main():
     # Verify with matlab: https://www.mathworks.com/help/robotics/ref/rigidbodytree.externalforce.html
 
     # Path setup 
-    '''
     tool_filename = "screwdriver.xml"
     robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
     output_scene_filename = "final_scene.xml"
@@ -66,19 +65,19 @@ def main():
     # Create the scene
     model_path = create_scene(tool_name=tool_filename, robot_and_tool_file_name=robot_and_tool_file_name,
                               output_scene_filename=output_scene_filename, piece_name=piece_name, base_dir=base_dir)
-    '''
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
+
+    #base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
     #model_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/ur5e.xml")
-    model_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/kuka/iiwa14.xml")
+    #model_path = os.path.join(base_dir, "kuka_iiwa_14_mujoco_utils/kuka/iiwa14.xml")
     #model_path = os.path.join(base_dir, "GoFa_utils_mujoco/GoFa5/GoFa5.xml")
 
     # Variables
     verbose = False           # Decide how verbose the code should be
     robot_motion = False      # Instantaneous placement or motion
     enable_control = False    # Decide whether to use the PID or go open loop
-    Kp = np.array([500, 500, 500, 150, 150, 150, 150])
-    Kd = np.array([30, 30, 30, 30, 30, 30, 30])
-    Ki = np.array([0, 0, 0, 0, 0, 0, 0])
+    Kp = np.array([500, 500, 500, 150, 150, 150])
+    Kd = np.array([30, 30, 30, 30, 30, 30])
+    Ki = np.array([0, 0, 0, 0, 0, 0])
 
     try:
         model = mujoco.MjModel.from_xml_path(model_path)
@@ -89,9 +88,9 @@ def main():
 
         # Target poses for the robot
         target_qpos_list = [
-            #np.radians([180, -100, 80, -90, -90, -45]),
+            np.radians([180, -100, 80, -90, -90, -45]),
             #np.radians([0,0,0,0,0,0]),
-            np.array([-2.293, -1.059, -2.024,  1.887, -0.105, -0.399, -2.142]),
+            # np.array([-2.293, -1.059, -2.024,  1.887, -0.105, -0.399, -2.142]),
             #np.array([2.9064, -1.6322, -2.8301, -0.2380,  3.0534,  1.7904]),
             #np.radians([0, 0, 45, 0, 0, 0]),
             #np.array([0.3, -1.308, 1.214, 1.663, -4.713, -3.163])
@@ -107,11 +106,11 @@ def main():
         site_parent_body = model.site_bodyid[tool_site_id]
 
         # External wrench defined in the *world* frame, applied at the tool site
-        external_force_world = np.array([0, 0, -30]) #! In terms of world coordinates 
-        external_torque_world = np.array([0.0, 0, -30])
+        external_force_world = np.array([0, 0, 5]) #! In terms of world coordinates 
+        external_torque_world = np.array([0.0, 0, 2.5])
         site_wrench_world = np.hstack([external_force_world, external_torque_world])  # [Fx,Fy,Fz, Tx,Ty,Tz] at site
 
-        print(f"The current joints are (deg): {np.round(np.degrees(data.qpos[:7]), 2)}")
+        print(f"The current joints are (deg): {np.round(np.degrees(data.qpos[:6]), 2)}")
 
         with mujoco.viewer.launch_passive(model, data) as viewer:
 
@@ -141,12 +140,12 @@ def main():
                     set_joint_configuration(data, model, desired_qpos)
                 else:
                     # Enable the Integral action
-                    Ki = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+                    Ki = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 
                 # Simulate for 10 seconds
                 seconds_per_config = 10.0
                 start_time = time.perf_counter()
-                error_integral = np.zeros(7)
+                error_integral = np.zeros(6)
 
                 mujoco.mj_forward(model, data)
                 viewer.sync()
@@ -187,19 +186,19 @@ def main():
                     jacp = np.zeros((3, model.nv))
                     jacr = np.zeros((3, model.nv))
                     mujoco.mj_jacSite(model, data, jacp, jacr, tool_site_id)  # world → site
-                    J6 = np.vstack([jacp, jacr])[:, :7]
+                    J6 = np.vstack([jacp, jacr])[:, :6]
 
                     # === Joint torques: gravity/Coriolis + counter torque + optional PD ===
                     tau_ext = J6.T @ world_wrench                # +J^T w to counterbalance the reaction
-                    gravity_comp = data.qfrc_bias[:7]            # C(q,qdot) qdot + G(q); at qdot=0 it's just gravity
+                    gravity_comp = data.qfrc_bias[:6]            # C(q,qdot) qdot + G(q); at qdot=0 it's just gravity
                     ctrl_torque, error_integral = controller(
-                        Kp, Kd, Ki, desired_qpos, data.qpos[:7], data.qvel[:7], error_integral, dt
+                        Kp, Kd, Ki, desired_qpos, data.qpos[:6], data.qvel[:6], error_integral, dt
                     )
 
                     if enable_control:
-                        data.ctrl[:7] = gravity_comp + tau_ext + ctrl_torque
+                        data.ctrl[:6] = gravity_comp + tau_ext + ctrl_torque
                     else:
-                        data.ctrl[:7] = gravity_comp + tau_ext #! If the world wrench is considered
+                        data.ctrl[:6] = gravity_comp + tau_ext #! If the world wrench is considered
 
                     # Debugging
                     if verbose:
@@ -207,8 +206,8 @@ def main():
                         print(f"tau_ext (J^T w): {np.round(tau_ext, 2)}")
                         if enable_control:
                             print(f"tau_PD: {np.round(ctrl_torque, 2)}")
-                        print("ctrl:", np.round(data.ctrl[:7], 2))
-                        print("qfrc_actuator:", np.round(data.qfrc_actuator[:7], 2))
+                        print("ctrl:", np.round(data.ctrl[:6], 2))
+                        print("qfrc_actuator:", np.round(data.qfrc_actuator[:6], 2))
 
                     mujoco.mj_step(model, data)
                     viewer.sync()
@@ -224,9 +223,9 @@ def main():
                 print(f"tau_ext (J^T w): {np.round(tau_ext, 2)}")
                 if enable_control:
                     print(f"Final PD torque (last): {np.round(ctrl_torque, 2)}")
-                print("Total commanded torque:", np.round(data.ctrl[:7], 2))
-                print("Applied actuator torques:", np.round(data.qfrc_actuator[:7], 2))
-                print("Final joint angles (deg):", np.round(np.degrees(data.qpos[:7]), 2))
+                print("Total commanded torque:", np.round(data.ctrl[:6], 2))
+                print("Applied actuator torques:", np.round(data.qfrc_actuator[:6], 2))
+                print("Final joint angles (deg):", np.round(np.degrees(data.qpos[:6]), 2))
 
             print("\n--- Finished all configurations. ---")
             input("Press Enter to close the viewer and exit...")
