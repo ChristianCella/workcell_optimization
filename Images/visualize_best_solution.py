@@ -49,8 +49,8 @@ mujoco.mj_resetData(model, data)
 # Load CSVs (last/best row)
 # -----------------------------
 csv_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-xi_path = os.path.join(csv_dir, "results/data/screwing/cma_es_ikflow/best_solutions.csv")
-q_path  = os.path.join(csv_dir, "results/data/screwing/cma_es_ikflow/best_configs.csv")
+xi_path = os.path.join(csv_dir, "results/data/screwing/turbo_ikflow/best_solutions.csv")
+q_path  = os.path.join(csv_dir, "results/data/screwing/turbo_ikflow/best_configs.csv")
 
 df_xi = pd.read_csv(xi_path)
 df_q  = pd.read_csv(q_path)
@@ -97,6 +97,8 @@ screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_t
 with mujoco.viewer.launch_passive(model, data) as viewer:
     input("Press enter to visualize the result ...")
     mujoco.mj_resetData(model, data)
+    viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
+    viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
 
     # Base, piece, tool-top (t1)
     set_body_pose(model, data, base_body_id,  [xi[0], xi[1], 0.1], euler_to_quaternion(xi[2], 0, 0))

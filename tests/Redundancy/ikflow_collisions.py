@@ -27,7 +27,7 @@ def main():
     tool_filename = "screwdriver.xml"
     robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
     output_scene_filename = "final_scene.xml"
-    obstacle_name = "screwing_plate.xml" 
+    obstacle_name = "table_grip.xml" 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
 
     # Create the robot + tool model
@@ -66,7 +66,7 @@ def main():
     wrist_3_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "wrist_3_link")
 
     # Set robot base (matrix A^w_b)
-    t_w_b = np.array([2.0, 0.0, 0.0])
+    t_w_b = np.array([2.0, 0.0, 0.3])
     R_w_b = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
     A_w_b = np.eye(4)
     A_w_b[:3, 3] = t_w_b
@@ -75,7 +75,7 @@ def main():
 
     # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
     t_ee_t1 = np.array([0, 0.15, 0]) # 0, 0.15, 0
-    R_ee_t1 = R.from_euler('XYZ', [np.radians(30), np.radians(0), np.radians(0)], degrees=False).as_matrix() # 30, 0, 0
+    R_ee_t1 = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix() # 30, 0, 0
     A_ee_t1 = np.eye(4)
     A_ee_t1[:3, 3] = t_ee_t1
     A_ee_t1[:3, :3] = R_ee_t1
