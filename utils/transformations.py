@@ -7,6 +7,17 @@ def euler_to_quaternion(roll, pitch, yaw, degrees=False):
     q = r.as_quat()
     return [q[3], q[0], q[1], q[2]]  # [w, x, y, z]
 
+def quaternion_to_euler(q, degrees=False):
+    from scipy.spatial.transform import Rotation as R
+
+    # Convert [w, x, y, z] → [x, y, z, w] for scipy
+    quat_scipy = [q[1], q[2], q[3], q[0]]
+
+    r = R.from_quat(quat_scipy)
+    roll, pitch, yaw = r.as_euler('XYZ', degrees=degrees)
+
+    return roll, pitch, yaw
+
 def rotm_to_quaternion(rotm):
     from scipy.spatial.transform import Rotation as R
     q = R.from_matrix(rotm).as_quat()

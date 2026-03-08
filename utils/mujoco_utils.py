@@ -1,5 +1,18 @@
 import mujoco
 import numpy as np
+from transformations import rotm_to_quaternion, quaternion_to_euler
+
+def get_cartesian_pose(frame_id, data, representation):
+    position = data.xpos[frame_id]
+    rotation_matrix = data.xmat[frame_id].reshape(3, 3)
+    quaternion = rotm_to_quaternion(rotation_matrix)
+    euler_angles = quaternion_to_euler(quaternion, degrees=True)
+    if representation == "quaternion":
+        return position, quaternion
+    elif representation == "euler":
+        return position, euler_angles
+    elif representation == "rotation_matrix":
+        return position, rotation_matrix
 
 def set_body_pose(model, data, body_id, pos, quat):
     model.body_pos[body_id] = pos
