@@ -17,14 +17,14 @@ from create_scene import create_reference_frames,  merge_robot_and_tool, inject_
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
 import fonts
-from transformations import rotm_to_quaternion
-from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability
+from transformations import rotm_to_quaternion, quaternion_to_euler, quaternion_to_rpy
+from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
 def main():
 
     # Path setup 
-    tool_filename = "screwdriver.xml"
+    tool_filename = "screwdriver_marco.xml"
     robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
     output_scene_filename = "final_scene.xml"
     obstacle_name = "table_grip.xml" 
@@ -74,23 +74,41 @@ def main():
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-    t_ee_t1 = np.array([0, 0.0, 0]) # 0, 0.15, 0
-    R_ee_t1 = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix() # 30, 0, 0
+    #get_homogeneous_matrix(-0.06, 0.0, 0.0455, 0, -90, 90)
+    t_ee_t1 = np.array([-0.06, 0.0, 0.0455]) # 0, 0.15, 0
+    R_ee_t1 = R.from_euler('XYZ', [np.radians(0), np.radians(-90), np.radians(90)], degrees=False).as_matrix() # 30, 0, 0
     A_ee_t1 = np.eye(4)
     A_ee_t1[:3, 3] = t_ee_t1
     A_ee_t1[:3, :3] = R_ee_t1
-    set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
+    #set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
+
+    # Rotate the frame of 90 deg around x
+    theta = 45.0
+    fixed_radius = 0.0455
+    t_t1_t2 = np.array([0.0, fixed_radius - (fixed_radius * np.cos(np.radians(theta))), -fixed_radius * np.sin(np.radians(theta))]) 
+    R_t1_t2 = R.from_euler('XYZ', [np.radians(theta), 0, 0], degrees=False).as_matrix() 
+    A_t1_t2 = np.eye(4)
+    A_t1_t2[:3, 3] = t_t1_t2
+    A_t1_t2[:3, :3] = R_t1_t2
+
+    # Compute the pose of the screwdriver body
+    A_ee_t2 = A_ee_t1 @ A_t1_t2
+    set_body_pose(model, data, screwdriver_body_id, A_ee_t2[:3, 3], rotm_to_quaternion(A_ee_t2[:3, :3]))
 
     # Fixed transformation 'tool top (t1) => tool tip (t)'
-    t_t1_t = np.array([0, 0.0, 0.0]) # 0.31
-    R_t1_t = R.from_euler('XYZ', [np.radians(0), np.radians(0), np.radians(0)], degrees=False).as_matrix()
-    A_t1_t = np.eye(4)
-    A_t1_t[:3, 3] = t_t1_t
-    A_t1_t[:3, :3] = R_t1_t
+    t_t2_t = np.array([0, -0.195, 0.028]) # 0.31
+    R_t2_t = R.from_euler('XYZ', [np.radians(90), np.radians(0), np.radians(0)], degrees=False).as_matrix()
+    A_t2_t = np.eye(4)
+    A_t2_t[:3, 3] = t_t2_t
+    A_t2_t[:3, :3] = R_t2_t
 
     # Update the position of the tool tip (Just for visualization purposes)
-    A_ee_t = A_ee_t1 @ A_t1_t  # combine the two transformations
+    A_ee_t = A_ee_t1 @ A_t1_t2 @ A_t2_t  # combine the two transformations
     set_body_pose(model, data, tool_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
+
+    rpy_angles = quaternion_to_rpy(rotm_to_quaternion(A_ee_t[:3, :3]), degrees=True)
+    print(f"{fonts.green}Vector t_ee_t:{A_ee_t[:3, 3]}{fonts.reset}")
+    print(f"{fonts.green}Euler angles:{rpy_angles}{fonts.reset}")
 
     # End-effector with respect to wrist3
     t_wl3_ee = np.array([0, 0.1, 0])
@@ -107,10 +125,10 @@ def main():
         input("Press Enter to start visualizing IK-flow solutions…")
 
         # Piece in the world (define A^w_p) => this is also used to put the frame in space  
-        theta_w_p_x_0 = np.radians(-88.86)
-        theta_w_p_y_0 = np.radians(3.32)
-        theta_w_p_z_0 = np.radians(-126.89)
-        t_w_p = np.array([0.1164, 0.51873, 0.37]) # [0.2, 0.2, 0.2]
+        theta_w_p_x_0 = np.radians(180)
+        theta_w_p_y_0 = np.radians(0)
+        theta_w_p_z_0 = np.radians(90)
+        t_w_p = np.array([-0.415, 0.34, 0.07]) # [0.2, 0.2, 0.2]
         R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
         A_w_p = np.eye(4)
         A_w_p[:3, 3] = t_w_p
@@ -172,7 +190,6 @@ def main():
             n_cols = get_collisions(model, data, False)
             sigma_manip = inverse_manipulability(q, model, data, tool_site_id)
             #time.sleep(params.show_pose_duration)
-            input("Press enter to show the next configuration")
 
             # Compute the metric for the evaluation
             if n_cols > 0:
@@ -184,6 +201,15 @@ def main():
             if cost < best_cost:
                 best_cost = cost
                 best_q = q
+
+            # Compute torques
+            wrench_world = np.array([0.0, 0.0, 0.0, 0.0, 0.0, -5.0])
+            J6 = compute_jacobian(model, data, tool_site_id)          
+            tau_ext = J6.T @ wrench_world  #* +J^T w to counterbalance the reaction
+            gravity_comp = data.qfrc_bias[:6]  #* C(q,qdot) qdot + G(q)
+
+            print(f"{fonts.purple}Tau: {np.round(tau_ext + gravity_comp)}{fonts.reset}")
+            input("Press enter to show the next configuration")
 
         print(f"Evaluating collisions and Jacobian on {len(sols_np)} samples lasted {time.time() - start_inference:.2f} seconds")
         print(f"The best configuration is: {np.round(best_q, 3)} with cost {best_cost:.3f}")

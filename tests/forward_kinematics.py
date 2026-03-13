@@ -24,7 +24,7 @@ from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 def main():
 
     # Path setup 
-    tool_filename = "screwdriver.xml"
+    tool_filename = "screwdriver_marco.xml"
     robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
     output_scene_filename = "final_scene.xml"
     obstacle_name = "table_grip.xml" 
@@ -68,12 +68,17 @@ def main():
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the base of the tool with respect to the flange
-    _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
-    set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
+    theta = 0.0
+    fixed_radius = 0.0455
+    _, _, A_ee_t1 = get_homogeneous_matrix(-0.06, 0.0, 0.0455, 0.0, -90.0, 90.0)
+    _, _, A_t1_t2 = get_homogeneous_matrix(0.0, fixed_radius - (fixed_radius * np.cos(np.radians(theta))), -fixed_radius * np.sin(np.radians(theta)), theta, 0.0, 0.0)
+    A_ee_t2 = A_ee_t1 @ A_t1_t2
+    set_body_pose(model, data, tool_base_body_id, A_ee_t2[:3, 3], rotm_to_quaternion(A_ee_t2[:3, :3]))
 
     # Fixed transformation 'tool base (t1) => tool tip (t)'
-    _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.0, 0, 0, 0)
-    set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3]))
+    _, _, A_t2_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0)
+    A_ee_t = A_ee_t1 @ A_t1_t2 @ A_t2_t
+    set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input("Press Enter to start visualizing IK-flow solutions…")
@@ -81,14 +86,14 @@ def main():
         # Desired joint configuration
         #q = np.radians([-87, -111, -117, 49, -276, 233])
         #q = np.zeros(6)
-        q = np.array([-1.6475823561297815, -1.799856802026266, -1.5848294496536255, 
-                      -1.3570835006288071, 1.6309974193572998, 0.8154301047325134])
+        #q = np.array([-1.6475823561297815, -1.799856802026266, -1.5848294496536255, -1.3570835006288071, 1.6309974193572998, 0.8154301047325134])
+        q = np.array([-4.235, -1.564,  2.035,  4.242, -1.571, -5.805])
         data.qpos[:6] = q.tolist()
         mujoco.mj_forward(model, data)
         viewer.sync()
 
         # Get the forward kinematics at a specified frame
-        pos, quat = get_cartesian_pose(flange_body_id, data, "euler")
+        pos, quat = get_cartesian_pose(tool_tip_body_id, data, "euler")
         print(f"{fonts.green}Cartesian pose: {np.round(pos, 3)}{fonts.reset}")
         print(f"{fonts.green}Cartesian orientation: {np.round(quat, 3)}{fonts.reset}")
         input("Press Enter to close the viewer…")

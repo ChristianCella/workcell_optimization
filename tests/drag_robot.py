@@ -8,7 +8,7 @@ import os, sys
 import tkinter as tk
 
 
-CONTROL_MODE = "joints" # "joints" or "cartesian"
+CONTROL_MODE = "cartesian" # "joints" or "cartesian"
 BODY_NAME = "tool_frame" 
 N_JOINTS = 6
 
@@ -320,7 +320,8 @@ def main():
     mujoco.mj_forward(model, data)
 
     #q_init = np.radians([-90, -90, -90, -90, 90, 0])
-    q_init = np.zeros(6)
+    # q_init = np.zeros(6)
+    q_init = [-4.235, -1.564,  2.035,  4.242, -1.571, -5.805]
     data.qpos[:6] = q_init
     mujoco.mj_forward(model, data)
 

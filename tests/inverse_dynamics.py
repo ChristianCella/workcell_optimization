@@ -31,7 +31,7 @@ def set_joint_configuration(data, model, desired_qpos):
 def main():
 
     # Path setup 
-    tool_filename = "screwdriver.xml"
+    tool_filename = "screwdriver_marco.xml"
     robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
     output_scene_filename = "final_scene.xml"
     obstacle_name = "table_grip.xml" 
@@ -75,8 +75,12 @@ def main():
             #np.radians([-75.21, -47.27, 64.57, -120.19, 273.28, -5.69]),
             # np.radians([-90, -90, -90, -90, 90, 0])
             #[1.37382, -1.1993, 1.8893, -2.28067, -1.58667, -0.2213]
-            [-1.6475823561297815, -1.799856802026266, -1.5848294496536255, -1.3570835006288071, 1.6309974193572998, 0.8154301047325134]
+            #[-1.6475823561297815, -1.799856802026266, -1.5848294496536255, -1.3570835006288071, 1.6309974193572998, 0.8154301047325134]
             #[-2.5074313322650355, -0.7600118678859253, -1.5335054397583008, 1.8785759645649414, 1.6293644905090332, 0.8156852722167969]
+            #[-2.3204782644854944, -3.190944810906881, 1.8267729918109339, 5.821655022888937, 1.1347246170043945, 0.855601966381073]
+            #[2.0630290508270264, -1.495842458014824, 2.23212701479067, -0.7291771334460755, -4.2233362833606165, 0.7842862606048584]
+            #[1.4908610582351685, -1.8917480907835902, 1.8431022802936, -1.5336077858558674, -1.5890796820269983, -0.1348660627948206]
+            [-4.235, -1.564,  2.035,  4.242, -1.571, -5.805]
         ]
 
         # Define bodies, geometries and sites
@@ -91,8 +95,8 @@ def main():
         if verbose: print(f"{fonts.red}The parent body name is: {parent_body_name}{fonts.reset}")
 
         # External wrench defined in the *world* frame, applied at the tool site
-        external_force_world = np.array([0, 0, 0.0]) #! In terms of world coordinates 
-        external_torque_world = np.array([0, 0, -20.0])
+        external_force_world = np.array([0.0, 0.0, 0.0]) #! In terms of world coordinates 
+        external_torque_world = np.array([0.0, 0.0, -5.0])
         site_wrench_world = np.hstack([external_force_world, external_torque_world])  # [Fx,Fy,Fz, Tx,Ty,Tz] at site
 
         print(f"The current joints are (deg): {np.round(np.degrees(data.qpos[:6]), 2)}")
@@ -110,12 +114,17 @@ def main():
                 set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
                 # Set the base of the tool with respect to the flange
-                _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
-                set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
+                theta = 0.0
+                fixed_radius = 0.0455
+                _, _, A_ee_t1 = get_homogeneous_matrix(-0.06, 0.0, 0.0455, 0.0, -90.0, 90.0)
+                _, _, A_t1_t2 = get_homogeneous_matrix(0.0, fixed_radius - (fixed_radius * np.cos(np.radians(theta))), -fixed_radius * np.sin(np.radians(theta)), theta, 0.0, 0.0)
+                A_ee_t2 = A_ee_t1 @ A_t1_t2
+                set_body_pose(model, data, tool_base_body_id, A_ee_t2[:3, 3], rotm_to_quaternion(A_ee_t2[:3, :3]))
 
                 # Fixed transformation 'tool top (t1) => tool tip (t)'
-                _, _, A_t1_t = get_homogeneous_matrix(0, 0, 0.31, 0, 0, 0)
-                set_body_pose(model, data, tool_tip_body_id, A_t1_t[:3, 3], rotm_to_quaternion(A_t1_t[:3, :3]))
+                _, _, A_t2_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0)
+                A_ee_t = A_ee_t1 @ A_t1_t2 @ A_t2_t
+                set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
                 # Set the robot in the specified configuration
                 set_joint_configuration(data, model, desired_qpos)
