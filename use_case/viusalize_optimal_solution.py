@@ -47,8 +47,8 @@ mujoco.mj_resetData(model, data)
 
 # Load files containing optimal results
 csv_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-layout_path = os.path.join(csv_dir, f"results", f"{opt_par.mode}", "all_joints", f"best_layout.csv")
-configurations_path  = os.path.join(csv_dir, f"results", f"{opt_par.mode}", "all_joints",f"best_joints_configs.csv")
+layout_path = os.path.join(csv_dir, f"results", f"{opt_par.mode}", "last_3_joints", f"best_layout.csv")
+configurations_path  = os.path.join(csv_dir, f"results", f"{opt_par.mode}", "last_3_joints",f"best_joints_configs.csv")
 
 df_layout = pd.read_csv(layout_path)
 df_configurations  = pd.read_csv(configurations_path)
