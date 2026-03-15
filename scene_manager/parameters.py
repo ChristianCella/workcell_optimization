@@ -23,8 +23,8 @@ class UseCaseData:
     # Control variables
     verbose: bool = False # Display messages
     show_pose_duration: int = 0.05  # Seconds to show each pose
-    activate_gui : bool = False  # Activate the GUI for visualization
-    mode: str = "debugging" # Either "debugging" or "optimization"
+    activate_gui : bool = True  # Activate the GUI for visualization
+    mode: str = "optimization" # Either "debugging" or "optimization"
 
     # Ikflow variables
     Ns: int = 25  # Samples per 'discretized' pose configuration
@@ -32,13 +32,13 @@ class UseCaseData:
     
     # TuRBO variables
     d: int = 3
-    init_rand_points: int = 1
-    batch_size: int = 3
-    n_desired_iterations: int = 2
-    n_trust_regions: int = 3
+    init_rand_points: int = 35
+    batch_size: int = 20
+    n_desired_iterations: int = 50
+    n_trust_regions: int = 5
     n_training_steps: int = 50
-    lb_real: np.ndarray = field(default_factory=lambda: np.array([-0.3, -0.3, np.radians(-90)])) #! Get the real values tomorrow
-    ub_real: np.ndarray = field(default_factory=lambda: np.array([0.3, 0.3, np.radians(90)])) #! Get the real values tomorrow
+    lb_real: np.ndarray = field(default_factory=lambda: np.array([-0.711, -0.091, np.radians(-90)])) 
+    ub_real: np.ndarray = field(default_factory=lambda: np.array([-0.4, 0.371, np.radians(90)])) 
 
     # Follower variables
     weights_follower: list = field(default_factory=lambda: [10.0, 0.5])

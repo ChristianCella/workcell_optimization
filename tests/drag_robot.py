@@ -8,7 +8,7 @@ import os, sys
 import tkinter as tk
 
 
-CONTROL_MODE = "cartesian" # "joints" or "cartesian"
+CONTROL_MODE = "joints" # "joints" or "cartesian"
 BODY_NAME = "tool_frame" 
 N_JOINTS = 6
 

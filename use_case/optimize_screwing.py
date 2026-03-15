@@ -64,7 +64,7 @@ def make_simulator(world_wrenches):
     tool_filename = "screwdriver_marco.xml"
     robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
     output_scene_filename = "final_scene.xml"
-    piece_name = "table_grip.xml" 
+    piece_name = "plate.xml" 
 
     # Create the scene
     model_path = create_scene(tool_name=tool_filename, robot_and_tool_file_name=robot_and_tool_file_name,
@@ -85,7 +85,7 @@ def make_simulator(world_wrenches):
     # Get body & site IDs
     base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
-    piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "table_grip")
+    piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "plate")
     tool_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "tool_site")
     screwdriver_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top")
 
@@ -99,7 +99,7 @@ def make_simulator(world_wrenches):
         set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
         # Set the piece in the environment (matrix A^w_p)
-        _, _, A_w_p = get_homogeneous_matrix(float(params[0]), float(params[1]), 0.0, 0.0, 0.0, 0.0) #! Take the correct z value (fixed)
+        _, _, A_w_p = get_homogeneous_matrix(float(params[0]), float(params[1]), -0.02, 0.0, 0.0, 0.0) #! Take the correct z value (fixed)
         set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
         # Rotated frame
@@ -134,8 +134,7 @@ def make_simulator(world_wrenches):
 
             # The fitness will be 'infinite' in this case
             fit_lead_prim = float(np.mean(tau_hat_abs))
-            fit_lead_sec = 1e2 
-            return fit_lead_prim, fit_lead_sec, q_star
+            return fit_lead_prim, q_star
 
         else: #! No initial collision
             if opt_par.verbose: print(f"{fonts.green}Initial layout has no collisions. Proceeding with the optimization.{fonts.reset}")
@@ -232,7 +231,7 @@ def make_simulator(world_wrenches):
                 # Check on feasibility: if q = np.zeros() => IK failed
                 if not np.array_equal(best_q, np.zeros(rob_par.nu)):
                     #tau_hat_abs.append(np.linalg.norm(tau_tot)) # Norm 2
-                    tau_hat_abs.append(np.max(tau_tot[-3:])) # Norm infinity on the last 3 joints
+                    tau_hat_abs.append(np.max(np.abs(tau_tot[-3:]))) # Norm infinity on the last 3 joints
                 else:
                     tau_hat_abs.append(1e2) 
 
@@ -253,7 +252,7 @@ Optimization of the workcell layout.
 '''
 if __name__ == "__main__":
 
-    world_wrenches = [(np.array([0.0, 0.0, 0.0, 0.0, 0.0, -5.0]))]
+    world_wrenches = [(np.array([0.0, 0.0, 0.0, 0.0, 0.0, -2.0]))]
 
     #* Set the wrapper to valuate one layout 
     run_sim, model, data = make_simulator(world_wrenches)
@@ -331,9 +330,9 @@ if __name__ == "__main__":
                     best_so_far_configurations_trend.append(configuration_batch[best_idx])
                     best_so_far_layout_trend.append(layout_batch[best_idx])
                 else: #* Case 2: no improvement
-                    best_so_far_fit_trend.append(best_so_far_fit_trend[-1])
-                    best_so_far_configurations_trend.append(best_so_far_configurations_trend[-1])
-                    best_so_far_layout_trend.append(best_so_far_layout_trend[-1])
+                    best_so_far_fit_trend.append(best_so_far_fit_trend[-1] if best_so_far_fit_trend else initial_fitness)
+                    best_so_far_configurations_trend.append(best_so_far_configurations_trend[-1] if best_so_far_configurations_trend else configuration_batch[best_idx])
+                    best_so_far_layout_trend.append(best_so_far_layout_trend[-1] if best_so_far_layout_trend else layout_batch[best_idx])
 
                 #* Display the status
                 print(f"{fonts.green}Iteration: {iteration_counter}; Best so far: {best_so_far_fit_trend[-1]}{fonts.reset}")
@@ -374,7 +373,7 @@ if __name__ == "__main__":
 
     # Leader fitness trend
     df_fit = pd.DataFrame(best_so_far_fit_trend, columns=["fitness"])
-    df_fit.to_csv(os.path.join(save_dir, opt_par.csv_directory, f"fitness_trend.csv"), index=False)
+    df_fit.to_csv(os.path.join(save_dir, opt_par.csv_directory, "last_3_joints", f"fitness_trend.csv"), index=False)
 
     # Best joint configurations trend
     configs = np.array(best_so_far_configurations_trend)  # shape: (n_iters, n_targets, n_joints)
@@ -391,11 +390,11 @@ if __name__ == "__main__":
     ]
 
     df_configs = pd.DataFrame(configs_flat, columns=columns)
-    df_configs.to_csv(os.path.join(save_dir, opt_par.csv_directory, f"best_joints_configs.csv"), index=False)
+    df_configs.to_csv(os.path.join(save_dir, opt_par.csv_directory, "last_3_joints", f"best_joints_configs.csv"), index=False)
 
     # Best layout trend
     df_layout = pd.DataFrame(best_so_far_layout_trend, columns=["xp", "yp", "theta"])
-    df_layout.to_csv(os.path.join(save_dir, opt_par.csv_directory, f"best_layout.csv"), index=False)
+    df_layout.to_csv(os.path.join(save_dir, opt_par.csv_directory, "last_3_joints", f"best_layout.csv"), index=False)
 
     # NOTE: close viewer before next iteration
     if viewer is not None:

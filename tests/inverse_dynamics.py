@@ -34,7 +34,7 @@ def main():
     tool_filename = "screwdriver_marco.xml"
     robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
     output_scene_filename = "final_scene.xml"
-    obstacle_name = "table_grip.xml" 
+    obstacle_name = "plate.xml" 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
     # Create the robot + tool model
@@ -80,7 +80,11 @@ def main():
             #[-2.3204782644854944, -3.190944810906881, 1.8267729918109339, 5.821655022888937, 1.1347246170043945, 0.855601966381073]
             #[2.0630290508270264, -1.495842458014824, 2.23212701479067, -0.7291771334460755, -4.2233362833606165, 0.7842862606048584]
             #[1.4908610582351685, -1.8917480907835902, 1.8431022802936, -1.5336077858558674, -1.5890796820269983, -0.1348660627948206]
-            [-4.235, -1.564,  2.035,  4.242, -1.571, -5.805]
+            #[-4.235, -1.564,  2.035,  4.242, -1.571, -5.805]
+            #[2.011986017227173, -1.496545986538269, 2.0683119932757776, 4.141344709987305, 4.725419044494629, 0.43669506907463074]
+            #[2.0900416374206543, -1.5076804918101807, 2.525707785283224, 0.8322180944630126, 4.636202812194824, -2.177608315144674]
+            [0.8617546558380127, -0.6956683558276673, 0.7749579588519495, 4.601780577296875, 4.643815517425537, -2.389977518712179]
+            #[-0.341954533253805, -1.9425608120360316, 2.0775330702411097, 2.9921223360249023, 3.385472059249878, -2.389679257069723]
         ]
 
         # Define bodies, geometries and sites
@@ -88,6 +92,7 @@ def main():
         tool_base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top") # Base of the tool
         tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
         tool_tip_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, 'tool_site')
+        piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "plate")
 
         # Always use the site's *parent body* for COM and for xfrc_applied
         site_parent_body = model.site_bodyid[tool_tip_site_id]
@@ -96,7 +101,7 @@ def main():
 
         # External wrench defined in the *world* frame, applied at the tool site
         external_force_world = np.array([0.0, 0.0, 0.0]) #! In terms of world coordinates 
-        external_torque_world = np.array([0.0, 0.0, -5.0])
+        external_torque_world = np.array([0.0, 0.0, 0.0])
         site_wrench_world = np.hstack([external_force_world, external_torque_world])  # [Fx,Fy,Fz, Tx,Ty,Tz] at site
 
         print(f"The current joints are (deg): {np.round(np.degrees(data.qpos[:6]), 2)}")
@@ -110,8 +115,12 @@ def main():
                 mujoco.mj_resetData(model, data)
 
                 # Set the new robot base (matrix A^w_b)
-                _, _, A_w_b = get_homogeneous_matrix(0.5, 0.5, 0, 0, 0, 0)
+                _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
                 set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
+
+                # Set the piece in the environment (matrix A^w_p)
+                _, _, A_w_p = get_homogeneous_matrix(0.5, 0.5, 0.0, 0.0, 0.0, 0.0) 
+                set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
                 # Set the base of the tool with respect to the flange
                 theta = 0.0
