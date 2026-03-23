@@ -17,7 +17,7 @@ from create_scene import create_reference_frames,  merge_robot_and_tool, inject_
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(base_dir)
 import fonts
-from transformations import rotm_to_quaternion, quaternion_to_euler, quaternion_to_rpy
+from transformations import rotm_to_quaternion, quaternion_to_euler, quaternion_to_rpy, get_homogeneous_matrix
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, compute_jacobian
 from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
@@ -58,6 +58,7 @@ def main():
     mujoco.mj_resetData(model, data)
 
     # Get body/site IDs
+    component_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "plate")
     piece_body_id   = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "reference_target_1")
     base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
@@ -73,24 +74,29 @@ def main():
     A_w_b[:3, :3] = R_w_b
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
+    # Set the piece in the environment out of the way (matrix A^w_p)
+    _, _, A_w_p = get_homogeneous_matrix(1.5, 1.5, 0.0, 0.0, 0.0, 0.0) 
+    set_body_pose(model, data, component_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
+
     # Set the frame 'screw_top to a new pose wrt flange' and move the screwdriver there
-    '''
     t_ee_t1 = np.array([-0.06, 0.0, 0.0455]) # 0, 0.15, 0
     R_ee_t1 = R.from_euler('XYZ', [np.radians(0), np.radians(-90), np.radians(90)], degrees=False).as_matrix() # 30, 0, 0
     A_ee_t1 = np.eye(4)
     A_ee_t1[:3, 3] = t_ee_t1
     A_ee_t1[:3, :3] = R_ee_t1
     #set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
+
     '''
     t_ee_t1 = np.array([0.0, 0.0, 0.0]) # 0, 0.15, 0
-    R_ee_t1 = R.from_euler('XYZ', [np.radians(0.0), np.radians(0.0), np.radians(45.0)], degrees=False).as_matrix() # 30, 0, 0
+    R_ee_t1 = R.from_euler('XYZ', [np.radians(0.0), np.radians(0.0), np.radians(-45.0)], degrees=False).as_matrix() # 30, 0, 0
     A_ee_t1 = np.eye(4)
     A_ee_t1[:3, 3] = t_ee_t1
     A_ee_t1[:3, :3] = R_ee_t1
     #set_body_pose(model, data, screwdriver_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3]))
+    '''
 
     # Rotate the frame of 90 deg around x
-    theta = 0.0
+    theta = -90.0
     fixed_radius = 0.0455
     t_t1_t2 = np.array([0.0, fixed_radius - (fixed_radius * np.cos(np.radians(theta))), -fixed_radius * np.sin(np.radians(theta))]) 
     R_t1_t2 = R.from_euler('XYZ', [np.radians(theta), 0, 0], degrees=False).as_matrix() 
@@ -138,7 +144,7 @@ def main():
         theta_w_p_x_0 = np.radians(180)
         theta_w_p_y_0 = np.radians(0)
         theta_w_p_z_0 = np.radians(90)
-        t_w_p = np.array([-0.463, 0.085, 0.03]) # [0.2, 0.2, 0.2]
+        t_w_p = np.array([-0.55, 0.135, 0.03]) # [0.2, 0.2, 0.2]
         R_w_p = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
         A_w_p = np.eye(4)
         A_w_p[:3, 3] = t_w_p
@@ -182,7 +188,6 @@ def main():
         mujoco.mj_forward(model, data)
 
         # loop over each valid IK solution
-        cost = 1e12
         best_cost = 1e12
         start_inference = time.time()
 
@@ -201,15 +206,10 @@ def main():
             sigma_manip = inverse_manipulability(q, model, data, tool_site_id)
             #time.sleep(params.show_pose_duration)
 
-            # Compute the metric for the evaluation
-            if n_cols > 0:
-                cost = 1e12
-            else:
-                cost = sigma_manip
-
             # Save the configuration with best inverse manipulability
-            if cost < best_cost:
-                best_cost = cost
+            if (sigma_manip < best_cost) and (n_cols == 0):
+                print(f"{fonts.yellow}New best solution found with cost {sigma_manip:.3f}!{fonts.reset}")
+                best_cost = sigma_manip
                 best_q = q
 
             # Compute torques
@@ -219,7 +219,7 @@ def main():
             gravity_comp = data.qfrc_bias[:6]  #* C(q,qdot) qdot + G(q)
 
             print(f"{fonts.purple}Tau: {np.round(tau_ext + gravity_comp)}{fonts.reset}")
-            input("Press enter to show the next configuration")
+            #input("Press enter to show the next configuration")
 
         print(f"Evaluating collisions and Jacobian on {len(sols_np)} samples lasted {time.time() - start_inference:.2f} seconds")
         print(f"The best configuration is: {np.round(best_q, 3)} with cost {best_cost:.3f}")

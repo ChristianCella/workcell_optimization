@@ -70,7 +70,8 @@ def main():
     # Set the base of the tool with respect to the flange
     theta = 0.0
     fixed_radius = 0.0455
-    _, _, A_ee_t1 = get_homogeneous_matrix(-0.06, 0.0, 0.0455, 0.0, -90.0, 90.0)
+    #_, _, A_ee_t1 = get_homogeneous_matrix(-0.06, 0.0, 0.0455, 0.0, -90.0, 90.0)
+    _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, -45.0)
     _, _, A_t1_t2 = get_homogeneous_matrix(0.0, fixed_radius - (fixed_radius * np.cos(np.radians(theta))), -fixed_radius * np.sin(np.radians(theta)), theta, 0.0, 0.0)
     A_ee_t2 = A_ee_t1 @ A_t1_t2
     set_body_pose(model, data, tool_base_body_id, A_ee_t2[:3, 3], rotm_to_quaternion(A_ee_t2[:3, :3]))
@@ -80,6 +81,11 @@ def main():
     A_ee_t = A_ee_t1 @ A_t1_t2 @ A_t2_t
     set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
 
+    tool_pos = A_ee_t[:3, 3]
+    tool_rpy = R.from_matrix(A_ee_t[:3, :3]).as_euler('xyz', degrees=True)
+    print(f"{fonts.blue}Cartesian pose: {np.round(tool_pos, 3)}{fonts.reset}")
+    print(f"{fonts.blue}rpy angles in deg: {np.round(tool_rpy, 3)}{fonts.reset}")
+
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input("Press Enter to start visualizing IK-flow solutions…")
 
@@ -88,7 +94,9 @@ def main():
         #q = np.zeros(6)
         #q = np.array([-1.6475823561297815, -1.799856802026266, -1.5848294496536255, -1.3570835006288071, 1.6309974193572998, 0.8154301047325134])
         #q = np.array([-4.235, -1.564,  2.035,  4.242, -1.571, -5.805])
-        q = np.array([-0.341954533253805, -1.9425608120360316, 2.0775330702411097, 2.9921223360249023, 3.385472059249878, -2.389679257069723])
+        #q = np.array([-0.341954533253805, -1.9425608120360316, 2.0775330702411097, 2.9921223360249023, 3.385472059249878, -2.389679257069723])
+        #q = np.array([-3.4989991823779505, -1.3049639028361817, 2.021142307912008, -0.696436957722046, -1.8024914900409144, 0.7903070449829102])
+        q = np.array([-3.4957101980792444, -1.2961570781520386, 2.0434592405902308, -0.7268748444369812, -1.7992284933673304, 0.7903189659118652])
         data.qpos[:6] = q.tolist()
         mujoco.mj_forward(model, data)
         viewer.sync()

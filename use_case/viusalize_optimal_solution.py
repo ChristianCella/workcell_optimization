@@ -47,8 +47,8 @@ mujoco.mj_resetData(model, data)
 
 # Load files containing optimal results
 csv_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-layout_path = os.path.join(csv_dir, f"results", f"{opt_par.mode}", "last_3_joints", f"best_layout.csv")
-configurations_path  = os.path.join(csv_dir, f"results", f"{opt_par.mode}", "last_3_joints",f"best_joints_configs.csv")
+layout_path = os.path.join(csv_dir, f"results", f"{opt_par.mode}", "all_joints", f"best_layout.csv")
+configurations_path  = os.path.join(csv_dir, f"results", f"{opt_par.mode}", "all_joints",f"best_joints_configs.csv")
 
 df_layout = pd.read_csv(layout_path)
 df_configurations  = pd.read_csv(configurations_path)
@@ -68,7 +68,7 @@ q_mat = configuration.reshape(-1, rob_par.nu)
 assert q_mat.shape[1] == rob_par.nu, "best_joints_configs.csv joint count does not match robot_parameters.nu"
 
 print(f"{fonts.green}The complete vector xi is {layout}{fonts.reset}")
-print(f"{fonts.red}The complete vector q is:\n{q_mat}{fonts.reset}")
+print(f"{fonts.red}The complete vector q is:\n{np.degrees(q_mat)}{fonts.reset}")
 
 # Get body & site IDs
 base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")

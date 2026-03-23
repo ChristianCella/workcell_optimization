@@ -4,8 +4,8 @@ import numpy as np
 @dataclass
 class TestIkFlow:
     verbose: bool = True
-    N_samples: int = 100  # Samples per 'discretized' pose configuration
-    N_disc: int = 1  # Number of discrete configurations to test (rotational sweep)
+    N_samples: int = 20  # Samples per 'discretized' pose configuration
+    N_disc: int = 60  # Number of discrete configurations to test (rotational sweep)
     use_ikflow: bool = True  # Set to False to test a hard-coded joint configuration
     show_pose_duration: int = 0.5  # Seconds to show each pose
 
