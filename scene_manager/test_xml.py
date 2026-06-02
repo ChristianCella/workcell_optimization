@@ -24,8 +24,9 @@ data = mujoco.MjData(model)
 
 # Launch the viewer
 with mujoco.viewer.launch_passive(model, data) as viewer:
-    #q = np.array([0.9951, 4.5500, -1.5874, 0.5281, -4.0680, 2.2158])
-    #data.qpos[:6] = q.tolist()
+    q = np.array([0.9951, 4.5500, -1.5874, 0.5281, -4.0680, 2.2158])
+    #q = np.zeros(6)
+    data.qpos[:6] = q.tolist()
     mujoco.mj_forward(model, data)
     viewer.sync()
     input("Press Enter to continue...")
