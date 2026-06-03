@@ -111,13 +111,14 @@ def add_instance(base_scene_path: str, instance_path: str, output_path: str, mes
 def merge_robot_and_tool(
     base_dir="",
     robot_filename="ur5e.xml",
+    robot_folder="ur5e",
     tool_filename="small_tool.xml",
     output_robot_tool_filename="temp_ur5e_with_tool.xml",
     target_body_name="ee_frame_visual_only"
 ):
-    robot_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e", robot_filename)
-    tool_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_tool", tool_filename)
-    output_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e", output_robot_tool_filename)
+    robot_path = os.path.join(base_dir, "ur5e_utils_mujoco", robot_folder, robot_filename)
+    tool_path = os.path.join(base_dir, "ur5e_utils_mujoco/tools", tool_filename)
+    output_path = os.path.join(base_dir, "ur5e_utils_mujoco", robot_folder, output_robot_tool_filename)
 
     # Parse robot and tool XMLs
     robot_tree = etree.parse(robot_path)
@@ -137,16 +138,16 @@ def merge_robot_and_tool(
             # ✅ Copy mesh files from tool dir to robot's meshdir (ur5e/assets)
             if child.tag == "mesh" and "file" in child.attrib:
                 mesh_filename = child.attrib["file"]
-                src_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_tool", mesh_filename)
-                dst_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/assets", mesh_filename)
+                src_path = os.path.join(base_dir, "ur5e_utils_mujoco/tools", mesh_filename)
+                dst_path = os.path.join(base_dir, "ur5e_utils_mujoco", robot_folder, "assets", mesh_filename)
                 if not os.path.exists(dst_path):
                     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
                     shutil.copyfile(src_path, dst_path)
 
     # Attach only 'tool_top' body from tool
-    tool_top_body = tool_root.find(".//body[@name='tool_top']")
+    tool_top_body = tool_root.find(".//body[@name='tool_base']")
     if tool_top_body is None:
-        raise RuntimeError("Tool XML must contain a body named 'tool_top'")
+        raise RuntimeError("Tool XML must contain a body named 'tool_base'")
 
     target_body = robot_root.find(f".//body[@name='{target_body_name}']")
     if target_body is None:
@@ -159,14 +160,18 @@ def merge_robot_and_tool(
     return output_path
 
 
+'''
+Take the merged robot+tool XML and inject it into the scene XML, ensuring that assets are correctly handled.
+'''
 def inject_robot_tool_into_scene(
     base_dir="",
     scene_filename="empty_environment.xml",
+    robot_folder="ur5e",
     robot_tool_filename="temp_ur5e_with_tool.xml",
     output_scene_filename="temp_scene_with_tool.xml"
 ):
     scene_path = os.path.join(base_dir, "ur5e_utils_mujoco", scene_filename)
-    robot_tool_path = os.path.join(base_dir, "ur5e_utils_mujoco/ur5e", robot_tool_filename)
+    robot_tool_path = os.path.join(base_dir, "ur5e_utils_mujoco", robot_folder, robot_tool_filename)
     output_scene_path = os.path.join(base_dir, "ur5e_utils_mujoco", output_scene_filename)
 
     scene_tree = etree.parse(scene_path)
@@ -175,9 +180,13 @@ def inject_robot_tool_into_scene(
     robot_tool_root = robot_tool_tree.getroot()
 
     for element in robot_tool_root:
+        if not isinstance(element.tag, str):
+            continue
+
         tag = element.tag.lower()
+
         if tag == "compiler":
-            meshdir_rel = os.path.join("ur5e", "assets").replace("\\", "/")
+            meshdir_rel = os.path.join(robot_folder, "assets").replace("\\", "/")
             existing = scene_root.find("compiler")
             if existing is None:
                 compiler = copy.deepcopy(element)
@@ -185,34 +194,38 @@ def inject_robot_tool_into_scene(
                 scene_root.insert(0, compiler)
             else:
                 existing.set("meshdir", meshdir_rel)
+
         elif tag in ["default", "asset", "worldbody", "actuator"]:
             existing = scene_root.find(tag)
             if existing is None:
                 existing = etree.SubElement(scene_root, tag)
             for child in element:
+                if not isinstance(child.tag, str):
+                    continue
                 existing.append(copy.deepcopy(child))
 
     scene_tree.write(output_scene_path, pretty_print=True)
     return output_scene_path
 
-def create_scene(tool_name, robot_and_tool_file_name, output_scene_filename, piece_name, base_dir):
+def create_scene(tool_name, robot_and_tool_file_name, output_scene_filename, piece_name, base_dir, robot_folder="ur5e"):
 
     # Create the robot + tool model
-    _ = merge_robot_and_tool(tool_filename=tool_name, base_dir=base_dir, output_robot_tool_filename=robot_and_tool_file_name)
+    _ = merge_robot_and_tool(robot_filename ="GoFa5.xml", robot_folder=robot_folder, tool_filename=tool_name, base_dir=base_dir, output_robot_tool_filename=robot_and_tool_file_name)
 
     # Add the robot + tool to the 'vanilla' scene
     merged_scene_path = inject_robot_tool_into_scene(robot_tool_filename=robot_and_tool_file_name, 
                                                      output_scene_filename=output_scene_filename, 
-                                                     base_dir=base_dir)
+                                                     base_dir=base_dir,
+                                                     robot_folder=robot_folder)
     
     # Add another instance (i.e. piece for screwing, cockpit)
-    obstacle_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces", piece_name)
+    obstacle_path = os.path.join(base_dir, "ur5e_utils_mujoco/pieces", piece_name)
     add_instance(
         merged_scene_path,
         obstacle_path,
         merged_scene_path,
-        mesh_source_dir=os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces"),
-        mesh_target_dir=os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/assets")
+        mesh_source_dir=os.path.join(base_dir, "ur5e_utils_mujoco/pieces"),
+        mesh_target_dir=os.path.join(base_dir, "ur5e_utils_mujoco", robot_folder, "assets")
     )
 
     # Define the path to the final scene
@@ -221,38 +234,4 @@ def create_scene(tool_name, robot_and_tool_file_name, output_scene_filename, pie
     return model_path
 
 
-if __name__ == "__main__":
 
-    tool_filename = "screwdriver.xml"
-    robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
-    output_scene_filename = "final_scene.xml"
-    obstacle_name = "table_grip.xml"
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-
-    # Create the method defined above
-    model_path = create_scene(tool_name=tool_filename,
-                              robot_and_tool_file_name=robot_and_tool_file_name,
-                              output_scene_filename=output_scene_filename,
-                              piece_name=obstacle_name,
-                              base_dir=base_dir)
-
-    # Load and render
-    model = mujoco.MjModel.from_xml_path(model_path)
-    data = mujoco.MjData(model)
-    try:
-        with mujoco.viewer.launch_passive(model, data) as viewer:
-            print("Press ESC or Ctrl+C to exit the viewer.")
-            while viewer.is_running():
-                viewer.sync()
-    finally:
-        # Cleanup always runs
-        for path in [merged_robot_path, merged_scene_path, model_path]:
-            path = os.path.normpath(path)
-            if os.path.exists(path):
-                try:
-                    os.remove(path)
-                    print(f"Deleted temporary file: {path}")
-                except Exception as e:
-                    print(f"Could not delete {path}: {e}")
-            else:
-                print(f"File does not exist: {path}")

@@ -2,55 +2,51 @@
 import mujoco
 import mujoco.viewer
 import numpy as np
-import time
 import sys
 import os
-import torch
-from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 
+#* Directory for scene creation
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
-from parameters import TestIkFlow
-params = TestIkFlow()
 from create_scene import create_reference_frames,  merge_robot_and_tool, inject_robot_tool_into_scene, add_instance
+from config import *
+rob_params = rob_par
 
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
-sys.path.append(base_dir)
+#* Directory for the utilities
+utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
+sys.path.append(utils_dir)
 import fonts
 from transformations import rotm_to_quaternion, get_homogeneous_matrix
 from mujoco_utils import set_body_pose, get_cartesian_pose
-from ikflow_inference import FastIKFlowSolver, solve_ik_fast
 
 def main():
 
     # Path setup 
-    tool_filename = "screwdriver_marco.xml"
-    robot_and_tool_file_name = "temp_ur5e_with_tool.xml"
+    robot_folder = rob_folder
+    robot_name = rob_name
+    tool_filename = tool_name
+    robot_and_tool_file_name = f"temp_{robot_to_use}_with_tool.xml"
     output_scene_filename = "final_scene.xml"
-    obstacle_name = "table_grip.xml" 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
-    # Create the robot + tool model
-    _ = merge_robot_and_tool(tool_filename=tool_filename, base_dir=base_dir, output_robot_tool_filename=robot_and_tool_file_name)
+    # Create a single xml (robot + tool)
+    _ = merge_robot_and_tool(
+        robot_filename =robot_name, 
+        robot_folder=robot_folder, 
+        tool_filename=tool_filename, 
+        base_dir=base_dir, 
+        output_robot_tool_filename=robot_and_tool_file_name
+        )
     
     # Add the robot + tool to the scene
-    merged_scene_path = inject_robot_tool_into_scene(robot_tool_filename=robot_and_tool_file_name, 
-                                                     output_scene_filename=output_scene_filename, 
-                                                     base_dir=base_dir)
-    
-    # Add a piece for screwing
-    obstacle_path = os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces", obstacle_name)
-    add_instance(
-        merged_scene_path,
-        obstacle_path,
-        merged_scene_path,
-        mesh_source_dir=os.path.join(base_dir, "ur5e_utils_mujoco/screwing_pieces"),
-        mesh_target_dir=os.path.join(base_dir, "ur5e_utils_mujoco/ur5e/assets")
+    _ = inject_robot_tool_into_scene(
+        robot_tool_filename=robot_and_tool_file_name, 
+        output_scene_filename=output_scene_filename, 
+        base_dir=base_dir,
+        robot_folder=robot_folder
     )
-
-    # Create the reference frames
-    temp_xml_name = create_reference_frames(base_dir, "ur5e_utils_mujoco/" + output_scene_filename, 1)
-    model_path = os.path.join(base_dir, "ur5e_utils_mujoco", temp_xml_name)
+    
+    model_path = os.path.join(base_dir, "ur5e_utils_mujoco", output_scene_filename)
 
     # Load MuJoCo model
     model = mujoco.MjModel.from_xml_path(str(model_path))
@@ -59,45 +55,35 @@ def main():
 
     # Get body/site IDs
     base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
-    tool_base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_top") # Base of the tool
+    tool_base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_base") 
     tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
-    flange_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ee_frame_visual_only")
-
-    # Set robot base (matrix A^w_b)
+    
+    # Set robot base 
     _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
-    # Set the base of the tool with respect to the flange
-    theta = 0.0
-    fixed_radius = 0.0455
-    #_, _, A_ee_t1 = get_homogeneous_matrix(-0.06, 0.0, 0.0455, 0.0, -90.0, 90.0)
-    _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, -45.0)
-    _, _, A_t1_t2 = get_homogeneous_matrix(0.0, fixed_radius - (fixed_radius * np.cos(np.radians(theta))), -fixed_radius * np.sin(np.radians(theta)), theta, 0.0, 0.0)
-    A_ee_t2 = A_ee_t1 @ A_t1_t2
-    set_body_pose(model, data, tool_base_body_id, A_ee_t2[:3, 3], rotm_to_quaternion(A_ee_t2[:3, :3]))
+    # Set the tool
+    if tool_to_use == "welding_gun":
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) # Welding gun
+        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
+        _, _, A_t1_t = get_homogeneous_matrix(0.0, -0.083033, 0.31549, 45.0, 0.0, 0.0) # Welding gun
+    elif tool_to_use == "screwdriver":
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, -45.0) # Screwdriver
+        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
+        _, _, A_t1_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0) # Screwdriver
+    else:
+        raise ValueError(f"Unknown tool type: {tool_to_use}")
 
-    # Fixed transformation 'tool base (t1) => tool tip (t)'
-    _, _, A_t2_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0)
-    A_ee_t = A_ee_t1 @ A_t1_t2 @ A_t2_t
-    set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3]))
-
-    tool_pos = A_ee_t[:3, 3]
-    tool_rpy = R.from_matrix(A_ee_t[:3, :3]).as_euler('xyz', degrees=True)
-    print(f"{fonts.blue}Cartesian pose: {np.round(tool_pos, 3)}{fonts.reset}")
-    print(f"{fonts.blue}rpy angles in deg: {np.round(tool_rpy, 3)}{fonts.reset}")
+    # Compute the final tool tip pose
+    A_ee_t = A_ee_t1 @ A_t1_t
+    set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3])) # Update tool tip
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
-        input("Press Enter to start visualizing IK-flow solutions…")
+        input("Press Enter to compute forward kinematics…")
 
         # Desired joint configuration
-        #q = np.radians([-87, -111, -117, 49, -276, 233])
-        #q = np.zeros(6)
-        #q = np.array([-1.6475823561297815, -1.799856802026266, -1.5848294496536255, -1.3570835006288071, 1.6309974193572998, 0.8154301047325134])
-        #q = np.array([-4.235, -1.564,  2.035,  4.242, -1.571, -5.805])
-        #q = np.array([-0.341954533253805, -1.9425608120360316, 2.0775330702411097, 2.9921223360249023, 3.385472059249878, -2.389679257069723])
-        #q = np.array([-3.4989991823779505, -1.3049639028361817, 2.021142307912008, -0.696436957722046, -1.8024914900409144, 0.7903070449829102])
-        q = np.array([-3.4957101980792444, -1.2961570781520386, 2.0434592405902308, -0.7268748444369812, -1.7992284933673304, 0.7903189659118652])
-        data.qpos[:6] = q.tolist()
+        q = rob_params.home_configuration
+        data.qpos[:rob_params.nu] = q.tolist()
         mujoco.mj_forward(model, data)
         viewer.sync()
 

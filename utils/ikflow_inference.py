@@ -86,7 +86,7 @@ class FastIKFlowSolver:
             torch.backends.cudnn.benchmark = True
             torch.backends.cudnn.deterministic = False
 
-        # robot
+        #! Modify here as a function of the robot
         urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e" / "ur5e.urdf"
         with suppress_native_stderr():
 
@@ -151,6 +151,7 @@ class FastIKFlowSolver:
             "ikflow-checkpoint-epoch-epoch=199.ckpt"
         )
         '''
+        #! Modifiy here as a function of the robot
         ckpt = (
             project_root
             / "ikflow" / "ikflow" / "weights"
