@@ -57,9 +57,10 @@ def main():
     base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_base") 
     tool_tip_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
+    ee_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ee_frame_visual_only")
     
     # Set robot base 
-    _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
+    _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 180.0)
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the tool
@@ -88,7 +89,7 @@ def main():
         viewer.sync()
 
         # Get the forward kinematics at a specified frame
-        pos, quat = get_cartesian_pose(tool_tip_body_id, data, "euler")
+        pos, quat = get_cartesian_pose(ee_body_id, data, "euler")
         print(f"{fonts.green}Cartesian pose: {np.round(pos, 3)}{fonts.reset}")
         print(f"{fonts.green}Cartesian orientation: {np.round(quat, 3)}{fonts.reset}")
         input("Press Enter to close the viewer…")

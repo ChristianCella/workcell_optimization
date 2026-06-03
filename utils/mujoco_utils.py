@@ -65,3 +65,53 @@ def setup_target_frames(model, data, ref_body_ids, target_poses):
                       pos, [quat[3], quat[0], quat[1], quat[2]])
     mujoco.mj_forward(model, data)
 
+def solve_ik_dls(model, data, tool_tip_site_id, target_pos, target_rot,
+                 q_init, max_iter=100, tol=1e-5, lam=0.05):
+    """
+    Damped Least Squares IK solver.
+    target_pos : (3,)   desired position in world frame
+    target_rot : (3,3)  desired rotation matrix in world frame
+    q_init     : (6,)   initial joint configuration (use q_old!)
+    """
+    q = q_init.copy()
+
+    for _ in range(max_iter):
+        # Forward kinematics
+        data.qpos[:6] = q
+        mujoco.mj_forward(model, data)
+
+        # Position error
+        curr_pos = data.site_xpos[tool_tip_site_id]
+        err_pos  = target_pos - curr_pos
+
+        # Orientation error (from rotation matrix difference)
+        curr_rot = data.site_xmat[tool_tip_site_id].reshape(3, 3)
+        R_err    = target_rot @ curr_rot.T
+        # Convert skew-symmetric part to axis-angle error vector
+        err_rot  = 0.5 * np.array([
+            R_err[2, 1] - R_err[1, 2],
+            R_err[0, 2] - R_err[2, 0],
+            R_err[1, 0] - R_err[0, 1]
+        ])
+
+        # Full 6D error
+        err = np.concatenate([err_pos, err_rot])
+        if np.linalg.norm(err) < tol:
+            break
+
+        # Jacobian (6 x n_joints)
+        J = compute_jacobian(model, data, tool_tip_site_id)
+
+        # DLS step: Δq = Jᵀ (J Jᵀ + λ²I)⁻¹ Δx
+        JJT  = J @ J.T
+        dq   = J.T @ np.linalg.solve(JJT + lam**2 * np.eye(6), err)
+        q   += dq
+
+    return q
+
+def joint_displacement(q1, q2):
+    """Euclidean distance accounting for joint angle wrapping."""
+    diff = q1 - q2
+    diff = (diff + np.pi) % (2 * np.pi) - np.pi 
+    return np.linalg.norm(diff)
+
