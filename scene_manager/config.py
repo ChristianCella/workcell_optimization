@@ -3,7 +3,11 @@ from parameters import Ur5eRobot, GoFaRobot
 robot_to_use = "ur5e" # "ur5e" or "gofa5"
 tool_to_use = "welding_gun" # "welding_gun" or "screwdriver"
 piece_to_use = "cube"
-ik_solver_to_use = "dls" # "ikflow" or "dls"
+ik_solver_to_use = "ikflow" # "ikflow" or "dls"
+save_data = True
+import_data = False
+v_red_per = 0.05
+a_red_per = 0.05
 
 if robot_to_use == "ur5e":
     rob_folder = "ur5e"
