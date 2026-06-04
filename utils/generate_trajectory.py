@@ -3,6 +3,8 @@ import toppra.constraint as constraint
 import toppra.algorithm as algo
 import numpy as np
 import os
+import mujoco
+from mujoco_utils import get_collisions
 
 #* Base directrory
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
@@ -28,6 +30,7 @@ def create_trajectory(
     path = ta.SplineInterpolator(
         np.linspace(0, 1, len(q_path)),
         q_path
+        #bc_type="clamped"
     )
 
     # Define velocity and acceleration limits
@@ -102,3 +105,4 @@ def create_trajectory(
         print(f"Trajectories saved to {results_dir}")
 
     return q_traj, qd_traj, qdd_traj, t_fine, duration
+

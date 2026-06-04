@@ -87,8 +87,10 @@ def main():
     set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3])) # Update tool tip
 
     # End-effector with respect to wrist3
-    t_wl3_ee = np.array([0, 0.1, 0])
-    R_wl3_e = R.from_euler('XYZ', [np.radians(-90), 0, 0], degrees=False).as_matrix()
+    #t_wl3_ee = np.array([0, 0.1, 0])
+    #R_wl3_e = R.from_euler('XYZ', [np.radians(-90), 0, 0], degrees=False).as_matrix()
+    t_wl3_ee = np.array([0.0, 0.0, 0.0])
+    R_wl3_e = R.from_euler('XYZ', [np.radians(0.0), 0.0, 0.0], degrees=False).as_matrix()
     A_wl3_ee = np.eye(4)
     A_wl3_ee[:3, 3] = t_wl3_ee
     A_wl3_ee[:3, :3] = R_wl3_e
@@ -104,6 +106,7 @@ def main():
 
         # Loop through the discrete configurations
         sols_ok, fk_ok = [], []
+        start_time = time.time()
         for i in range(ik_params.N_disc): 
             R_w_p_rotated = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 + i * 2 * np.pi / ik_params.N_disc], degrees=False).as_matrix()
             A_w_p_rotated = np.eye(4)
@@ -125,6 +128,8 @@ def main():
         fk_ok = torch.cat(fk_ok,   dim=0)
         sols_np = sols_ok.cpu().numpy()
         fk_np = fk_ok.cpu().numpy()
+        end_time = time.time()
+        print(f"IK solutions computed in {end_time - start_time:.2f} seconds, that is {(end_time - start_time)/60:.2f} minutes")
 
         # Update the pose of the Cartesian target
         quat_frame = rotm_to_quaternion(A_w_p[:3, :3])

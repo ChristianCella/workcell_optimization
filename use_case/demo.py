@@ -69,7 +69,7 @@ def main():
     mujoco.mj_resetData(model, data)
 
     # Get body/site IDs
-    piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "cube")
+    piece_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"{piece_to_use}")
     base_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base")
     tool_base_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_base")
     tool_tip_body_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "tool_frame")
@@ -77,17 +77,39 @@ def main():
 
     # Set robot base (matrix A^w_b)
     if robot_to_use == "ur5e":
-        _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 180.0) 
+        if piece_to_use == "t_shape":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.4, 0.0, 0.0, 180.0) 
+        elif piece_to_use == "cube":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 180.0) 
+        else:
+            raise ValueError(f"Unknown piece type: {piece_to_use}")
+        _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.1, 0.0, -90.0, 0.0, 0.0) #! Fixed
     elif robot_to_use == "gofa5":
-        _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 0.0) 
+        if piece_to_use == "t_shape":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.4, 0.0, 0.0, 90.0)
+        elif piece_to_use == "cube":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 0.0) 
+        else:
+            raise ValueError(f"Unknown piece type: {piece_to_use}")
+        _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
     data.qpos[:rob_params.nu] = rob_params.home_configuration.tolist()
 
     # Set the piece in the environment out of the way (matrix A^w_p)
     if robot_to_use == "ur5e":
-        _, _, A_w_p = get_homogeneous_matrix(0.0, -0.75, 0.0, 0.0, 0.0, 0.0) 
+        if piece_to_use == "t_shape":
+            _, _, A_w_p = get_homogeneous_matrix(0.0, -1.0, 0.6, 0.0, 0.0, 180.0) 
+        elif piece_to_use == "cube":
+            _, _, A_w_p = get_homogeneous_matrix(0.0, -0.75, 0.0, 0.0, 0.0, 0.0) 
+        else:
+            raise ValueError(f"Unknown piece type: {piece_to_use}")
     elif robot_to_use == "gofa5":
-        _, _, A_w_p = get_homogeneous_matrix(0.75, 0.0, 0.0, 0.0, 0.0, 90.0) 
+        if piece_to_use == "t_shape":
+            _, _, A_w_p = get_homogeneous_matrix(0.0, 1.0, 0.6, 0.0, 0.0, 0.0)
+        elif piece_to_use == "cube":
+            _, _, A_w_p = get_homogeneous_matrix(0.75, 0.0, 0.0, 0.0, 0.0, 90.0) 
+        else:
+            raise ValueError(f"Unknown piece type: {piece_to_use}")
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Set the tool
@@ -105,9 +127,6 @@ def main():
     # Compute the final tool tip pose
     A_ee_t = A_ee_t1 @ A_t1_t
     set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3])) # Update tool tip
-
-    #! Fixed matrix A_wl3_ee
-    _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.1, 0.0, -90.0, 0.0, 0.0)
 
     # Get the Cartesian path stitched to the piece
     cartesian_frames = []
@@ -134,7 +153,6 @@ def main():
             #* Get the path (no trajectory)
             q_path, total_time = create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, save_data)
             print(f"{fonts.green}ik optimization completed in {total_time:.2f} seconds!{fonts.reset}")
-
 
         #* Time-optimal path parametrization
         q_traj, _, _, _, _ = create_trajectory(

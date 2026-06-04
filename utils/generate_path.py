@@ -1,6 +1,7 @@
 import sys, time, os, mujoco, torch
 from mujoco_utils import *
 from transformations import *   
+import fonts
 
 #* Base directrory
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
@@ -34,6 +35,7 @@ def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_
         #! Time-consuming solver
         if ik_solver_to_use == "ikflow":
             sols_ok, fk_ok = [], []
+            start_time = time.time()
             #* Retrieve N ik solutions
             for i in range(ik_params.N_disc):
                 R_w_p_rotated = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 + i * 2 * np.pi / ik_params.N_disc], degrees=False).as_matrix()
@@ -51,13 +53,18 @@ def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_
                 sols_ok.append(sols_disc)
                 fk_ok.append(fk_disc)
 
+            end_time = time.time()
+            print(f"{fonts.blue}Trajectory point {j+1}{fonts.reset}")
+            print(f"{fonts.green}IK solutions computed in {end_time - start_time:.2f} seconds, that is {(end_time - start_time)/60:.2f} minutes{fonts.reset}")
+
             # bring solutions back to host for numpy()
             sols_ok = torch.cat(sols_ok, dim=0)
-            fk_ok = torch.cat(fk_ok,   dim=0)
+            fk_ok = torch.cat(fk_ok, dim=0)
             sols_np = sols_ok.cpu().numpy()
             fk_np = fk_ok.cpu().numpy()
 
             #* Rank each candidate based on smallest joint displacement from the previous configuration
+            start_time = time.time()
             best_cost = 1e12
             best_q = np.zeros(rob_params.nu)
             for i, (q, x) in enumerate(zip(sols_np, fk_np), 1):
@@ -74,6 +81,7 @@ def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_
                     best_q = q
 
             # Found optimal config
+            print(f"{fonts.yellow}Best solution for trajectory point {j+1} found in {time.time() - start_time:.2f} seconds!{fonts.reset}")
             q_path.append(best_q)
             data.qpos[:6] = best_q.tolist()
             mujoco.mj_forward(model, data)
@@ -90,7 +98,7 @@ def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_
         
 
     # Path found
-    q_path = np.unwrap(q_path, axis=0) # Remove multiplicity
+    q_path = np.unwrap(q_path, axis=0) #! Remove multiplicity
     total_time = time.time() - start_time
 
     if save_data:

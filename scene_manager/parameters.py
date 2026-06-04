@@ -4,8 +4,8 @@ import numpy as np
 @dataclass
 class TestIK:
     verbose: bool = True
-    N_samples: int = 200  # Samples per 'discretized' pose configuration
-    N_disc: int = 360  # Number of discrete configurations to test (rotational sweep)
+    N_samples: int = 150  # Samples per 'discretized' pose configuration
+    N_disc: int = 60  # Number of discrete configurations to test (rotational sweep)
     show_pose_duration: int = 0.5  # Seconds to show each pose
 
 @dataclass

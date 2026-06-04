@@ -5,6 +5,11 @@ import time
 from contextlib import redirect_stderr
 import contextlib
 
+#* Directory for scene creation
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
+from create_scene import create_reference_frames,  merge_robot_and_tool, inject_robot_tool_into_scene, add_instance
+from config import *
+
 ''' 
 This code is an improvement of 'inference_single_pose.py' for two reasons:
     1. It allows to test the network on multiple poses in parallel, which is much faster.
@@ -87,18 +92,21 @@ class FastIKFlowSolver:
             torch.backends.cudnn.deterministic = False
 
         #! Modify here as a function of the robot
-        urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e" / "ur5e.urdf"
+        if robot_to_use == "ur5e":
+            urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e" / "ur5e.urdf"
+        elif robot_to_use == "gofa5":
+            urdf_path = project_root / "ur5e_utils_mujoco" / "gofa5" / "patched_gofa5.urdf"
+        else:
+            raise ValueError(f"Unknown robot type: {robot_to_use}")
+
         with suppress_native_stderr():
 
             robot = Robot(
-                name="ur5e_custom",
+                name=f"{robot_to_use}_custom",
                 urdf_filepath=str(urdf_path),
-                active_joints=[
-                    "shoulder_pan_joint","shoulder_lift_joint","elbow_joint",
-                    "wrist_1_joint","wrist_2_joint","wrist_3_joint",
-                ],
+                active_joints=joint_names,
                 base_link="base_link",
-                end_effector_link_name="wrist_3_link",
+                end_effector_link_name=ik_link_training,
                 ignored_collision_pairs=[],
                 collision_capsules_by_link=None,
             )
@@ -124,6 +132,7 @@ class FastIKFlowSolver:
         suffix = f"_{DATASET_TAG_NON_SELF_COLLIDING}"
         ddir   = os.path.join(DATASET_DIR, f"{robot.name}{suffix}")
         samples_fp, poses_fp, *_ = get_dataset_filepaths(ddir, [DATASET_TAG_NON_SELF_COLLIDING])
+      
         samples_tr = torch.load(samples_fp).float().to(self.device)
         poses_tr   = torch.load(poses_fp).float().to(self.device)
         x_mean, x_std = samples_tr.mean(0), samples_tr.std(0)
@@ -144,20 +153,25 @@ class FastIKFlowSolver:
         self.solver._y_transform.mean, self.solver._y_transform.std = y_mean, y_std
 
         # load Lightning checkpoint
-        '''
-        ckpt = (
-            P.home() / ".cache" / "ikflow" / "training_logs" /
-            "ur5e_custom--Jul.21.2025_08-43AM" /
-            "ikflow-checkpoint-epoch-epoch=199.ckpt"
-        )
-        '''
         #! Modifiy here as a function of the robot
-        ckpt = (
-            project_root
-            / "ikflow" / "ikflow" / "weights"
-            / "ur5e_custom--Aug.07.2025_11-27AM"
-            / "weights-epoch=250.ckpt"
-        )
+        if robot_to_use == "ur5e":
+            ckpt = (
+                project_root
+                / "ikflow" / "ikflow" / "weights"
+                / "ur5e_custom--Aug.07.2025_11-27AM"
+                / "weights-epoch=250.ckpt"
+            )
+        elif robot_to_use == "gofa5":
+            ckpt = (
+                project_root
+                / "ikflow" / "ikflow" / "weights"
+                / "gofa5_custom--Oct.02.2025_11-25AM"
+                / "weights-epoch=49.ckpt"
+            )
+        else:
+            raise ValueError(f"Unknown robot type: {robot_to_use}")
+
+        
         lit = IkfLitModel.load_from_checkpoint(
             str(ckpt),
             ik_solver        = self.solver,
