@@ -27,6 +27,8 @@ if ik_solver_to_use == "ikflow": fast_ik_solver = FastIKFlowSolver()
 def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, save_data):
     start_time = time.time()
     q_path = []
+    cols = []
+    reach = []
     for j in range(len(cartesian_path)):
         q_old = data.qpos[:rob_params.nu].copy()
         t_w_p = cartesian_path[j][0]
@@ -54,8 +56,8 @@ def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_
                 fk_ok.append(fk_disc)
 
             end_time = time.time()
-            print(f"{fonts.blue}Trajectory point {j+1}{fonts.reset}")
-            print(f"{fonts.green}IK solutions computed in {end_time - start_time:.2f} seconds, that is {(end_time - start_time)/60:.2f} minutes{fonts.reset}")
+            #print(f"{fonts.blue}Trajectory point {j+1}{fonts.reset}")
+            #print(f"{fonts.green}IK solutions computed in {end_time - start_time:.2f} seconds, that is {(end_time - start_time)/60:.2f} minutes{fonts.reset}")
 
             # bring solutions back to host for numpy()
             sols_ok = torch.cat(sols_ok, dim=0)
@@ -63,7 +65,14 @@ def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_
             sols_np = sols_ok.cpu().numpy()
             fk_np = fk_ok.cpu().numpy()
 
-            #* Rank each candidate based on smallest joint displacement from the previous configuration
+            #! Check reachability
+            if sols_np.shape[0] == 0:
+                #print(f"{fonts.red}No IK solutions found for trajectory point {j+1}!{fonts.reset}")
+                reach.append(1) # Mark as failure
+            else:
+                reach.append(0) # Mark as success
+
+            #* Smallest joint displacement
             start_time = time.time()
             best_cost = 1e12
             best_q = np.zeros(rob_params.nu)
@@ -81,18 +90,20 @@ def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_
                     best_q = q
 
             # Found optimal config
-            print(f"{fonts.yellow}Best solution for trajectory point {j+1} found in {time.time() - start_time:.2f} seconds!{fonts.reset}")
+            #print(f"{fonts.yellow}Best solution for trajectory point {j+1} found in {time.time() - start_time:.2f} seconds!{fonts.reset}")
             q_path.append(best_q)
+            cols.append(1 if (best_cost == 1e12 and sols_np.shape[0] != 0) else 0) # 1 if no solution found, 0 otherwise
             data.qpos[:6] = best_q.tolist()
             mujoco.mj_forward(model, data)
 
-        #! Damped-least squares
+        #! Damped-least squares method
         elif ik_solver_to_use == "dls":
             target_rot = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
-            best_q = solve_ik_dls(model, data, tool_tip_site_id, t_w_p, target_rot, q_init=q_old)
+            best_q, res = solve_ik_dls(model, data, tool_tip_site_id, t_w_p, target_rot, q_init=q_old)
             data.qpos[:6] = best_q
             mujoco.mj_forward(model, data)
             q_path.append(best_q)
+            reach.append(res) 
         else:
             raise ValueError(f"Unknown IK solver type: {ik_solver_to_use}")
         
@@ -110,4 +121,4 @@ def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_
                    header="q1,q2,q3,q4,q5,q6", comments="")
         print(f"{fonts.green}Path saved to {csv_path}{fonts.reset}")
 
-    return q_path, total_time
+    return q_path, reach, cols, total_time

@@ -49,7 +49,7 @@ def inverse_manipulability(q, model, data, tool_site_id):
     J = np.vstack([Jp, Jr])[:,:6]
     JJt = J @ J.T
     det = np.linalg.det(JJt)
-    return 1e12 if det <= 1e-12 else 1.0/np.sqrt(det)
+    return 1e12 if det <= 1e-6 else 1.0/np.sqrt(det)
 
 def directional_inverse_manipulability(q, model, data, tool_site_id, u_z):
     data.qpos[:model.nv] = q; mujoco.mj_forward(model, data)
@@ -74,6 +74,7 @@ def solve_ik_dls(model, data, tool_tip_site_id, target_pos, target_rot,
     q_init     : (6,)   initial joint configuration (use q_old!)
     """
     q = q_init.copy()
+    res = 1 # Assume failure
 
     for _ in range(max_iter):
         # Forward kinematics
@@ -97,6 +98,7 @@ def solve_ik_dls(model, data, tool_tip_site_id, target_pos, target_rot,
         # Full 6D error
         err = np.concatenate([err_pos, err_rot])
         if np.linalg.norm(err) < tol:
+            res = 0 # Success
             break
 
         # Jacobian (6 x n_joints)
@@ -107,7 +109,9 @@ def solve_ik_dls(model, data, tool_tip_site_id, target_pos, target_rot,
         dq   = J.T @ np.linalg.solve(JJT + lam**2 * np.eye(6), err)
         q   += dq
 
-    return q
+    # If after max iteration res is still 1, it means the error is not < tol
+
+    return q, res
 
 def joint_displacement(q1, q2):
     """Euclidean distance accounting for joint angle wrapping."""

@@ -73,8 +73,9 @@ def main():
     _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
-    # Set the Cartesian target (piece to manipulate)
-    _, _, A_w_p = get_homogeneous_matrix(-0.55, 0.135, 0.03, 180, 0, 90)
+    # Set the Cartesian target 
+    #_, _, A_w_p = get_homogeneous_matrix(-0.55, 0.135, 0.03, 180, 0, 90)
+    _, _, A_w_p = get_homogeneous_matrix(-2.5, 0.135, 0.03, 180, 0, 90)
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Set the tool
@@ -140,6 +141,7 @@ def main():
 
         # loop over each valid IK solution
         best_cost = 1e12
+        best_q = np.zeros(rob_params.nu)
         for i, (q, x) in enumerate(zip(sols_np, fk_np), 1):
 
             print(f"{fonts.green}Joints (rad): {np.round(q, 3)}{fonts.reset}")

@@ -19,7 +19,7 @@ utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(utils_dir)
 import fonts
 from transformations import rotm_to_quaternion, rotm2euler, get_homogeneous_matrix
-from mujoco_utils import set_body_pose
+from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability
 from generate_path import create_path
 from generate_trajectory import create_trajectory
 
@@ -100,7 +100,7 @@ def main():
         if piece_to_use == "t_shape":
             _, _, A_w_p = get_homogeneous_matrix(0.0, -1.0, 0.6, 0.0, 0.0, 180.0) 
         elif piece_to_use == "cube":
-            _, _, A_w_p = get_homogeneous_matrix(0.0, -0.75, 0.0, 0.0, 0.0, 0.0) 
+            _, _, A_w_p = get_homogeneous_matrix(0.0, -0.75, 0.0, 0.0, 0.0, 0.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
     elif robot_to_use == "gofa5":
@@ -151,7 +151,35 @@ def main():
             q_path = np.loadtxt(os.path.join(base_dir, f"workcell_optimization/results/q_path_{robot_to_use}_{ik_solver_to_use}.csv"), delimiter=",", skiprows=1)
         else:
             #* Get the path (no trajectory)
-            q_path, total_time = create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, save_data)
+            q_path, reach, cols, total_time = create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, save_data)
+            
+            if ik_solver_to_use == "dls":
+                unreachable = [i for i, v in enumerate(reach) if v == 1]
+                print(f"{fonts.green}Waypoints in positions {unreachable} are not reachable{fonts.reset}")
+
+                #* Check a-posteriori possible collisions and manipulability
+                for idx, q in enumerate(q_path):
+                    data.qpos[:6] = q
+                    mujoco.mj_forward(model, data)
+                    n_collisions = get_collisions(model, data, verbose=False)
+                    manipulability = inverse_manipulability(q, model, data, tool_tip_site_id)
+                    if n_collisions > 0:
+                        print(f"{fonts.red}Waypoint {idx+1} has {n_collisions} collision(s)!{fonts.reset}")
+                        return
+                    if manipulability == 1e12:
+                        print(f"{fonts.red}Waypoint {idx+1} is in a singular configuration!{fonts.reset}")
+                        return
+            elif ik_solver_to_use == "ikflow": #* Most checks are already built-in
+                if sum(cols) > 0:
+                    print(f"{fonts.red}Warning: {sum(cols)} waypoint(s) in the path are in collision!{fonts.reset}")
+                    return
+                if sum(reach) > 0:
+                    print(f"{fonts.red}Warning: {sum(reach)} waypoint(s) in the path are unreachable!{fonts.reset}")
+                    return
+            else:
+                raise ValueError(f"Unknown IK solver type: {ik_solver_to_use}")
+
+            #* Display total time
             print(f"{fonts.green}ik optimization completed in {total_time:.2f} seconds!{fonts.reset}")
 
         #* Time-optimal path parametrization

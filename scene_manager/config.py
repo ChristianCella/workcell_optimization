@@ -5,9 +5,9 @@ tool_to_use = "welding_gun" # "welding_gun" or "screwdriver"
 piece_to_use = "cube"
 ik_solver_to_use = "dls" # "ikflow" or "dls"
 save_data = False
-import_data = True
-v_red_per = 0.05
-a_red_per = 0.05
+import_data = False
+v_red_per = 0.2
+a_red_per = 0.2
 
 if robot_to_use == "ur5e":
     rob_folder = "ur5e"
