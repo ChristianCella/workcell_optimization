@@ -2,9 +2,9 @@ from parameters import Ur5eRobot, GoFaRobot
 
 robot_to_use = "gofa5" # "ur5e" or "gofa5"
 tool_to_use = "painting_gun" # "welding_gun" or "screwdriver"
-piece_to_use = "cube"
+piece_to_use = "reconstructed" # "cube", "t_shape", or "reconstructed"
 ik_solver_to_use = "dls" # "ikflow" or "dls"
-save_data = True
+save_data = False
 import_data = False
 v_red_per = 0.2
 a_red_per = 0.2

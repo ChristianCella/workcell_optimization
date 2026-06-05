@@ -75,28 +75,34 @@ def main():
 
     # Set the Cartesian target 
     _, _, A_w_p = get_homogeneous_matrix(-0.55, 0.135, 0.03, 180, 0, 90)
-    #_, _, A_w_p = get_homogeneous_matrix(-2.5, 0.135, 0.03, 180, 0, 90)
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Set the tool
-    #_, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) # Welding gun
-    #_, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, -45.0) # Screwdriver
-    _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) # Painting gun
-    set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
-    #_, _, A_t1_t = get_homogeneous_matrix(0.0, -0.083033, 0.31549, 45.0, 0.0, 0.0) # Welding gun
-    #_, _, A_t1_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0) # Screwdriver
-    _, _, A_t1_t = get_homogeneous_matrix(0.0, 0.0, 0.21, 0.0, 0.0, 0.0) # Painting gun
+    if tool_to_use == "welding_gun":
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 90.0) # Welding gun
+        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
+        _, _, A_t1_t = get_homeneous_matrix(0.0, -0.083033, 0.31549, 45.0, 0.0, 0.0) # Welding gun
+    elif tool_to_use == "screwdriver":  
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, -45.0) # Screwdriver
+        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
+        _, _, A_t1_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0) # Screwdriver
+    elif tool_to_use == "painting_gun":
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) # Painting gun
+        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
+        _, _, A_t1_t = get_homogeneous_matrix(0.0, 0.0, 0.21, 0.0, 0.0, 0.0) # Painting gun 
+    else:
+        raise ValueError(f"Unknown tool type: {tool_to_use}")
+   
     A_ee_t = A_ee_t1 @ A_t1_t
     set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3])) # Update tool tip
 
     # End-effector with respect to wrist3
-    #t_wl3_ee = np.array([0, 0.1, 0])
-    #R_wl3_e = R.from_euler('XYZ', [np.radians(-90), 0, 0], degrees=False).as_matrix()
-    t_wl3_ee = np.array([0.0, 0.0, 0.0])
-    R_wl3_e = R.from_euler('XYZ', [np.radians(0.0), 0.0, 0.0], degrees=False).as_matrix()
-    A_wl3_ee = np.eye(4)
-    A_wl3_ee[:3, 3] = t_wl3_ee
-    A_wl3_ee[:3, :3] = R_wl3_e
+    if robot_to_use == "ur5e":
+        _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.1, 0.0, -90.0, 0.0, 0.0) #! Fixed
+    elif robot_to_use == "gofa5":
+        _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
+    else:
+        raise ValueError(f"Unknown robot type: {robot_to_use}")
 
     #! ikflow inference  
     with mujoco.viewer.launch_passive(model, data) as viewer:
@@ -156,7 +162,7 @@ def main():
 
             viewer.sync()
             n_cols = get_collisions(model, data, True)
-            sigma_manip = inverse_manipulability(q, model, data, tool_tip_site_id)
+            sigma_manip = inverse_manipulability(q, model, data, rob_params, tool_tip_site_id)
             time.sleep(ik_params.show_pose_duration)
 
             # Save the configuration with best inverse manipulability

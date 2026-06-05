@@ -6,7 +6,7 @@ class TestIK:
     verbose: bool = True
     N_samples: int = 100  # 150
     N_disc: int = 50  # 60
-    show_pose_duration: int = 0.5  # Seconds to show each pose
+    show_pose_duration: int = 0.05  # Seconds to show each pose
 
 @dataclass
 class Ur5eRobot:
