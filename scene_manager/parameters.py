@@ -4,8 +4,8 @@ import numpy as np
 @dataclass
 class TestIK:
     verbose: bool = True
-    N_samples: int = 20  # 150
-    N_disc: int = 1  # 60
+    N_samples: int = 100  # 150
+    N_disc: int = 50  # 60
     show_pose_duration: int = 0.5  # Seconds to show each pose
 
 @dataclass

@@ -24,13 +24,13 @@ fast_ik_solver = None
 if ik_solver_to_use == "ikflow": fast_ik_solver = FastIKFlowSolver()
 
 
-def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, save_data):
+def create_path(cartesian_path, model, data, rob_par, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, save_data):
     start_time = time.time()
     q_path = []
     cols = []
     reach = []
     for j in range(len(cartesian_path)):
-        q_old = data.qpos[:rob_params.nu].copy()
+        q_old = data.qpos[:rob_par.nu].copy()
         t_w_p = cartesian_path[j][0]
         theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 = cartesian_path[j][1]           
 
@@ -75,11 +75,11 @@ def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_
             #* Smallest joint displacement
             start_time = time.time()
             best_cost = 1e12
-            best_q = np.zeros(rob_params.nu)
+            best_q = np.zeros(rob_par.nu)
             for i, (q, x) in enumerate(zip(sols_np, fk_np), 1):
 
                 # apply joint solution
-                data.qpos[:6] = q.tolist()
+                data.qpos[:rob_par.nu] = q.tolist()
                 mujoco.mj_forward(model, data)
                 n_cols = get_collisions(model, data, False)
 
@@ -93,14 +93,14 @@ def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_
             #print(f"{fonts.yellow}Best solution for trajectory point {j+1} found in {time.time() - start_time:.2f} seconds!{fonts.reset}")
             q_path.append(best_q)
             cols.append(1 if (best_cost == 1e12 and sols_np.shape[0] != 0) else 0) # 1 if no solution found, 0 otherwise
-            data.qpos[:6] = best_q.tolist()
+            data.qpos[:rob_par.nu] = best_q.tolist()
             mujoco.mj_forward(model, data)
 
         #! Damped-least squares method
         elif ik_solver_to_use == "dls":
             target_rot = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0], degrees=False).as_matrix()
-            best_q, res = solve_ik_dls(model, data, tool_tip_site_id, t_w_p, target_rot, q_init=q_old)
-            data.qpos[:6] = best_q
+            best_q, res = solve_ik_dls(model, data, rob_par, tool_tip_site_id, t_w_p, target_rot, q_init=q_old)
+            data.qpos[:rob_par.nu] = best_q
             mujoco.mj_forward(model, data)
             q_path.append(best_q)
             reach.append(res) 
@@ -117,8 +117,9 @@ def create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_
         q_path_np = np.array(q_path)  
         csv_path = os.path.join(base_dir, "workcell_optimization/results", f"q_path_{robot_to_use}_{ik_solver_to_use}.csv")
         os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+        header = ",".join([f"q{i+1}" for i in range(rob_par.nu)])
         np.savetxt(csv_path, q_path_np, delimiter=",",
-                   header="q1,q2,q3,q4,q5,q6", comments="")
+                   header=header, comments="")
         print(f"{fonts.green}Path saved to {csv_path}{fonts.reset}")
 
     return q_path, reach, cols, total_time

@@ -121,6 +121,10 @@ def main():
         _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, -45.0) # Screwdriver
         set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
         _, _, A_t1_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0) # Screwdriver
+    elif tool_to_use == "painting_gun":
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) # Painting gun
+        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
+        _, _, A_t1_t = get_homogeneous_matrix(0.0, 0.0, 0.21, 0.0, 0.0, 0.0) # Painting gun (same as welding gun)
     else:
         raise ValueError(f"Unknown tool type: {tool_to_use}")
 
@@ -151,7 +155,7 @@ def main():
             q_path = np.loadtxt(os.path.join(base_dir, f"workcell_optimization/results/q_path_{robot_to_use}_{ik_solver_to_use}.csv"), delimiter=",", skiprows=1)
         else:
             #* Get the path (no trajectory)
-            q_path, reach, cols, total_time = create_path(cartesian_path, model, data, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, save_data)
+            q_path, reach, cols, total_time = create_path(cartesian_path, model, data, rob_params, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, save_data)
             
             if ik_solver_to_use == "dls":
                 unreachable = [i for i, v in enumerate(reach) if v == 1]
@@ -159,15 +163,18 @@ def main():
 
                 #* Check a-posteriori possible collisions and manipulability
                 for idx, q in enumerate(q_path):
-                    data.qpos[:6] = q
+                    data.qpos[:rob_params.nu] = q
                     mujoco.mj_forward(model, data)
-                    n_collisions = get_collisions(model, data, verbose=False)
-                    manipulability = inverse_manipulability(q, model, data, tool_tip_site_id)
+                    viewer.sync()
+                    n_collisions = get_collisions(model, data, verbose=True)
+                    manipulability = inverse_manipulability(q, model, data, rob_params, tool_tip_site_id)
                     if n_collisions > 0:
                         print(f"{fonts.red}Waypoint {idx+1} has {n_collisions} collision(s)!{fonts.reset}")
+                        input("Press Enter to visualize the collision(s)…")
                         return
                     if manipulability == 1e12:
                         print(f"{fonts.red}Waypoint {idx+1} is in a singular configuration!{fonts.reset}")
+                        input("Press Enter to visualize the singularity…")
                         return
             elif ik_solver_to_use == "ikflow": #* Most checks are already built-in
                 if sum(cols) > 0:
@@ -197,7 +204,7 @@ def main():
                     
         input("Press Enter to visualize the best path found")
         #* Set robot in the home configuration
-        data.qpos[:6] = rob_params.home_configuration.tolist()
+        data.qpos[:rob_params.nu] = rob_params.home_configuration.tolist()
         mujoco.mj_forward(model, data)
         viewer.sync()
 
@@ -205,7 +212,7 @@ def main():
         dt = 1/rob_params.freq
         t0 = time.perf_counter()
         for i, q in enumerate(q_traj):
-            data.qpos[:6] = q
+            data.qpos[:rob_params.nu] = q
             mujoco.mj_forward(model, data)
             viewer.sync()
 

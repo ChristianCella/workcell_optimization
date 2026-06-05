@@ -74,16 +74,18 @@ def main():
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the Cartesian target 
-    #_, _, A_w_p = get_homogeneous_matrix(-0.55, 0.135, 0.03, 180, 0, 90)
-    _, _, A_w_p = get_homogeneous_matrix(-2.5, 0.135, 0.03, 180, 0, 90)
+    _, _, A_w_p = get_homogeneous_matrix(-0.55, 0.135, 0.03, 180, 0, 90)
+    #_, _, A_w_p = get_homogeneous_matrix(-2.5, 0.135, 0.03, 180, 0, 90)
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Set the tool
     #_, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) # Welding gun
-    _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, -45.0) # Screwdriver
+    #_, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, -45.0) # Screwdriver
+    _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) # Painting gun
     set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
     #_, _, A_t1_t = get_homogeneous_matrix(0.0, -0.083033, 0.31549, 45.0, 0.0, 0.0) # Welding gun
-    _, _, A_t1_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0) # Screwdriver
+    #_, _, A_t1_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0) # Screwdriver
+    _, _, A_t1_t = get_homogeneous_matrix(0.0, 0.0, 0.21, 0.0, 0.0, 0.0) # Painting gun
     A_ee_t = A_ee_t1 @ A_t1_t
     set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3])) # Update tool tip
 
@@ -153,7 +155,7 @@ def main():
             mujoco.mj_forward(model, data)
 
             viewer.sync()
-            n_cols = get_collisions(model, data, False)
+            n_cols = get_collisions(model, data, True)
             sigma_manip = inverse_manipulability(q, model, data, tool_tip_site_id)
             time.sleep(ik_params.show_pose_duration)
 

@@ -2,12 +2,12 @@ from parameters import Ur5eRobot, GoFaRobot
 
 robot_to_use = "ur5e" # "ur5e" or "gofa5"
 tool_to_use = "welding_gun" # "welding_gun" or "screwdriver"
-piece_to_use = "cube"
+piece_to_use = "t_shape"
 ik_solver_to_use = "dls" # "ikflow" or "dls"
 save_data = False
 import_data = False
-v_red_per = 0.2
-a_red_per = 0.2
+v_red_per = 0.1
+a_red_per = 0.1
 
 if robot_to_use == "ur5e":
     rob_folder = "ur5e"
@@ -28,6 +28,8 @@ if tool_to_use == "welding_gun":
     tool_name = "welding_gun.xml"
 elif tool_to_use == "screwdriver":
     tool_name = "screwdriver.xml"
+elif tool_to_use == "painting_gun":
+    tool_name = "painting_gun.xml"
 else:
     raise ValueError(f"Unknown tool type: {tool_to_use}")
 

@@ -19,11 +19,11 @@ def set_body_pose(model, data, body_id, pos, quat):
     model.body_quat[body_id] = quat
     mujoco.mj_forward(model, data)
 
-def compute_jacobian(model, data, tool_site_id):
-    Jp = np.zeros((3, model.nv))
-    Jr = np.zeros((3, model.nv))
+def compute_jacobian(model, data, rob_par, tool_site_id):
+    Jp = np.zeros((3, rob_par.nu))
+    Jr = np.zeros((3, rob_par.nu))
     mujoco.mj_jacSite(model, data, Jp, Jr, tool_site_id)
-    Jac = np.vstack([Jp, Jr])[:, :6]
+    Jac = np.vstack([Jp, Jr])[:, :rob_par.nu]
     return Jac
 
 def get_collisions(model, data, verbose):
@@ -39,25 +39,16 @@ def get_collisions(model, data, verbose):
             # lookup names via mj_id2name
             name1 = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, c.geom1)
             name2 = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, c.geom2)
-            if verbose: print(f"  • {name1} ↔ {name2}")
+            if verbose: print(f" - {name1} <-> {name2}")
     return data.ncon
 
-def inverse_manipulability(q, model, data, tool_site_id):
-    data.qpos[:model.nv] = q; mujoco.mj_forward(model, data)
-    Jp = np.zeros((3,model.nv)); Jr = np.zeros((3,model.nv))
-    mujoco.mj_jacSite(model, data, Jp, Jr, tool_site_id)
-    J = np.vstack([Jp, Jr])[:,:6]
+def inverse_manipulability(q, model, data, rob_par, tool_site_id):
+    data.qpos[:rob_par.nu] = q 
+    mujoco.mj_forward(model, data)
+    J = compute_jacobian(model, data, rob_par, tool_site_id)
     JJt = J @ J.T
     det = np.linalg.det(JJt)
     return 1e12 if det <= 1e-6 else 1.0/np.sqrt(det)
-
-def directional_inverse_manipulability(q, model, data, tool_site_id, u_z):
-    data.qpos[:model.nv] = q; mujoco.mj_forward(model, data)
-    Jp = np.zeros((3,model.nv)); Jr = np.zeros((3,model.nv))
-    mujoco.mj_jacSite(model, data, Jp, Jr, tool_site_id)
-    J = np.vstack([Jp, Jr])[:,:6]
-    dir_inv_man = u_z.T @ J @ J.T @ u_z
-    return 1e12 if dir_inv_man <= 1e-12 else 1.0/np.sqrt(dir_inv_man)
 
 def setup_target_frames(model, data, ref_body_ids, target_poses):
     for i, (pos, quat) in enumerate(target_poses):
@@ -65,7 +56,7 @@ def setup_target_frames(model, data, ref_body_ids, target_poses):
                       pos, [quat[3], quat[0], quat[1], quat[2]])
     mujoco.mj_forward(model, data)
 
-def solve_ik_dls(model, data, tool_tip_site_id, target_pos, target_rot,
+def solve_ik_dls(model, data, rob_par, tool_tip_site_id, target_pos, target_rot,
                  q_init, max_iter=100, tol=1e-5, lam=0.05):
     """
     Damped Least Squares IK solver.
@@ -78,7 +69,7 @@ def solve_ik_dls(model, data, tool_tip_site_id, target_pos, target_rot,
 
     for _ in range(max_iter):
         # Forward kinematics
-        data.qpos[:6] = q
+        data.qpos[:rob_par.nu] = q
         mujoco.mj_forward(model, data)
 
         # Position error
@@ -102,7 +93,7 @@ def solve_ik_dls(model, data, tool_tip_site_id, target_pos, target_rot,
             break
 
         # Jacobian (6 x n_joints)
-        J = compute_jacobian(model, data, tool_tip_site_id)
+        J = compute_jacobian(model, data, rob_par, tool_tip_site_id)
 
         # DLS step: Δq = Jᵀ (J Jᵀ + λ²I)⁻¹ Δx
         JJT  = J @ J.T
