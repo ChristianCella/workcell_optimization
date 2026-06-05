@@ -45,7 +45,7 @@ def generate_rapid_program(
     # This is a rough approximation — RAPID uses TCP speed, not joint speed.
     # We use a generous value so the robot is not artificially slowed down.
     # The actual motion profile is defined by the dense waypoint sequence.
-    v_default = 200   # mm/s — conservative safe speed for dense trajectory
+    v_default = 5000   # mm/s — conservative safe speed for dense trajectory
     v_home    = 100   # mm/s — slower for home moves
 
     lines = []
@@ -109,7 +109,7 @@ def generate_rapid_program(
     for i in range(n_points):
         # Use fine stop only on last point
         if i < n_points - 1:
-            zone = "z1"
+            zone = "z10"
         else:
             zone = "fine"
         lines.append(

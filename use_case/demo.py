@@ -81,14 +81,18 @@ def main():
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.4, 0.0, 0.0, 180.0) 
         elif piece_to_use == "cube":
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 180.0) 
+        elif piece_to_use == "reconstructed":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 180.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.1, 0.0, -90.0, 0.0, 0.0) #! Fixed
     elif robot_to_use == "gofa5":
         if piece_to_use == "t_shape":
-            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.4, 0.0, 0.0, 90.0)
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.4, 0.0, 0.0, 0.0)
         elif piece_to_use == "cube":
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 0.0) 
+        elif piece_to_use == "reconstructed":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
@@ -101,6 +105,8 @@ def main():
             _, _, A_w_p = get_homogeneous_matrix(0.0, -1.0, 0.6, 0.0, 0.0, 180.0) 
         elif piece_to_use == "cube":
             _, _, A_w_p = get_homogeneous_matrix(0.0, -0.75, 0.0, 0.0, 0.0, 0.0)
+        elif piece_to_use == "reconstructed":
+            _, _, A_w_p = get_homogeneous_matrix(0.0, 0.65, -0.3, 0.0, 0.0, -90.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
     elif robot_to_use == "gofa5":
@@ -108,6 +114,8 @@ def main():
             _, _, A_w_p = get_homogeneous_matrix(0.0, 1.0, 0.6, 0.0, 0.0, 0.0)
         elif piece_to_use == "cube":
             _, _, A_w_p = get_homogeneous_matrix(0.75, 0.0, 0.0, 0.0, 0.0, 90.0) 
+        elif piece_to_use == "reconstructed":
+            _, _, A_w_p = get_homogeneous_matrix(-0.5, 0.0, -0.3, 0.0, 0.0, 0.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
@@ -207,6 +215,9 @@ def main():
         data.qpos[:rob_params.nu] = rob_params.home_configuration.tolist()
         mujoco.mj_forward(model, data)
         viewer.sync()
+
+        # Wait 2 seconds before starting the motion
+        time.sleep(2)
 
         #* Updatae the robot configuration along the trajectory
         dt = 1/rob_params.freq

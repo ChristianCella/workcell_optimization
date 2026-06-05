@@ -1,13 +1,13 @@
 from parameters import Ur5eRobot, GoFaRobot
 
-robot_to_use = "ur5e" # "ur5e" or "gofa5"
-tool_to_use = "welding_gun" # "welding_gun" or "screwdriver"
-piece_to_use = "t_shape"
+robot_to_use = "gofa5" # "ur5e" or "gofa5"
+tool_to_use = "painting_gun" # "welding_gun" or "screwdriver"
+piece_to_use = "cube"
 ik_solver_to_use = "dls" # "ikflow" or "dls"
-save_data = False
+save_data = True
 import_data = False
-v_red_per = 0.1
-a_red_per = 0.1
+v_red_per = 0.2
+a_red_per = 0.2
 
 if robot_to_use == "ur5e":
     rob_folder = "ur5e"
@@ -37,5 +37,7 @@ if piece_to_use == "cube":
     pie_name = "cube.xml"
 elif piece_to_use == "t_shape":
     pie_name = "t_shape.xml"
+elif piece_to_use == "reconstructed":
+    pie_name = "reconstructed.xml"
 else:
     raise ValueError(f"Unknown piece type: {piece_to_use}")
