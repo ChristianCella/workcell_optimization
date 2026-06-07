@@ -79,60 +79,65 @@ def main():
     if robot_to_use == "ur5e":
         if piece_to_use == "t_shape":
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.4, 0.0, 0.0, 180.0) 
+            _, _, A_w_p = get_homogeneous_matrix(0.0, -1.0, 0.6, 0.0, 0.0, 180.0)
         elif piece_to_use == "cube":
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 180.0) 
+            _, _, A_w_p = get_homogeneous_matrix(0.0, -0.75, 0.0, 0.0, 0.0, 0.0)
         elif piece_to_use == "reconstructed":
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 180.0)
+            _, _, A_w_p = get_homogeneous_matrix(0.0, 0.65, -0.3, 0.0, 0.0, -90.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.1, 0.0, -90.0, 0.0, 0.0) #! Fixed
     elif robot_to_use == "gofa5":
         if piece_to_use == "t_shape":
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.4, 0.0, 0.0, 0.0)
-        elif piece_to_use == "cube":
-            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 0.0) 
-        elif piece_to_use == "reconstructed":
-            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        else:
-            raise ValueError(f"Unknown piece type: {piece_to_use}")
-        _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
-    set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
-    data.qpos[:rob_params.nu] = rob_params.home_configuration.tolist()
-
-    # Set the piece in the environment out of the way (matrix A^w_p)
-    if robot_to_use == "ur5e":
-        if piece_to_use == "t_shape":
-            _, _, A_w_p = get_homogeneous_matrix(0.0, -1.0, 0.6, 0.0, 0.0, 180.0) 
-        elif piece_to_use == "cube":
-            _, _, A_w_p = get_homogeneous_matrix(0.0, -0.75, 0.0, 0.0, 0.0, 0.0)
-        elif piece_to_use == "reconstructed":
-            _, _, A_w_p = get_homogeneous_matrix(0.0, 0.65, -0.3, 0.0, 0.0, -90.0)
-        else:
-            raise ValueError(f"Unknown piece type: {piece_to_use}")
-    elif robot_to_use == "gofa5":
-        if piece_to_use == "t_shape":
             _, _, A_w_p = get_homogeneous_matrix(0.0, 1.0, 0.6, 0.0, 0.0, 0.0)
         elif piece_to_use == "cube":
-            _, _, A_w_p = get_homogeneous_matrix(0.75, 0.0, 0.0, 0.0, 0.0, 90.0) 
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 0.0) 
+            _, _, A_w_p = get_homogeneous_matrix(0.75, 0.0, 0.0, 0.0, 0.0, 90.0)
         elif piece_to_use == "reconstructed":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             _, _, A_w_p = get_homogeneous_matrix(-0.5, 0.0, -0.3, 0.0, 0.0, 0.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
+        _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
+    elif robot_to_use == "fanuc_crx_10ia_l":
+        if piece_to_use == "t_shape":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            _, _, A_w_p = get_homogeneous_matrix(0.0, 1.0, 0.6, 0.0, 0.0, 0.0)
+        elif piece_to_use == "cube":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) 
+            _, _, A_w_p = get_homogeneous_matrix(0.75, 0.0, 0.0, 0.0, 0.0, 90.0)
+        elif piece_to_use == "reconstructed":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            _, _, A_w_p = get_homogeneous_matrix(-0.5, 0.0, -0.3, 0.0, 0.0, 0.0)
+        else:
+            raise ValueError(f"Unknown piece type: {piece_to_use}")
+        _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
+    else:
+        raise ValueError(f"Unknown robot type: {robot_to_use}")
+    
+    # Set the robot in home
+    set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
+    data.qpos[:rob_params.nu] = rob_params.home_configuration.tolist()
+  
+    # Set the piece in the environment
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Set the tool
     if tool_to_use == "welding_gun":
-        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) # Welding gun
-        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
-        _, _, A_t1_t = get_homogeneous_matrix(0.0, -0.083033, 0.31549, 45.0, 0.0, 0.0) # Welding gun
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) 
+        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) 
+        _, _, A_t1_t = get_homogeneous_matrix(0.0, -0.083033, 0.31549, 45.0, 0.0, 0.0)
     elif tool_to_use == "screwdriver":
-        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, -45.0) # Screwdriver
-        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
-        _, _, A_t1_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0) # Screwdriver
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, -45.0) 
+        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) 
+        _, _, A_t1_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0)
     elif tool_to_use == "painting_gun":
-        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) # Painting gun
-        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) # Update tool base
-        _, _, A_t1_t = get_homogeneous_matrix(0.0, 0.0, 0.21, 0.0, 0.0, 0.0) # Painting gun (same as welding gun)
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) 
+        set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) 
+        _, _, A_t1_t = get_homogeneous_matrix(0.0, 0.0, 0.21, 0.0, 0.0, 0.0) 
     else:
         raise ValueError(f"Unknown tool type: {tool_to_use}")
 
@@ -203,6 +208,7 @@ def main():
             rob_params=rob_params,
             dt=1/rob_params.freq,
             solver_wrapper="ecos",
+            #solver_wrapper="seidel",
             save_data=save_data,
             robot_to_use=robot_to_use,
             ik_solver_to_use=ik_solver_to_use,

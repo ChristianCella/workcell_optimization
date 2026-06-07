@@ -5,7 +5,7 @@ import numpy as np
 class TestIK:
     verbose: bool = True
     N_samples: int = 100  # 150
-    N_disc: int = 50  # 60
+    N_disc: int = 4  # 60
     show_pose_duration: int = 0.05  # Seconds to show each pose
 
 @dataclass
@@ -26,22 +26,22 @@ class GoFaRobot:
     nu: int = 6 # Number of joints
     freq: int = 100 # Hz
     home_configuration: np.ndarray = field(default_factory=lambda: np.radians([0.0, 5.0, 4.0, 0.0, 80.0, 0.0]))
-    robot_reach: float = 0.85 
+    robot_reach: float = 0.95 
     lb: list = field(default_factory=lambda: -2 * np.pi * np.ones(6))
     ub: list = field(default_factory=lambda: 2 * np.pi * np.ones(6))
-    q_dot_max: np.ndarray = field(default_factory=lambda: np.array([2.18, 2.18, 2.4, 3.49, 3.49, 3.49]))  # rad/s
-    q_ddot_max: np.ndarray = field(default_factory=lambda: np.array([20.0, 20.0, 20.0, 20.0, 20.0, 20.0])) # rad/s²
+    q_dot_max: np.ndarray = field(default_factory=lambda: np.array([2.18, 2.18, 2.4, 3.49, 3.49, 3.49]))  #! Not so sure
+    q_ddot_max: np.ndarray = field(default_factory=lambda: np.array([20.0, 20.0, 20.0, 20.0, 20.0, 20.0])) #! Not so sure
 
-@dataclass #! Parameters to check!
+@dataclass 
 class FanucCrx10iaLRobot:
     nu: int = 6 # Number of joints
-    freq: int = 100 # Hz
-    home_configuration: np.ndarray = field(default_factory=lambda: np.radians([0.0, 5.0, 4.0, 0.0, 80.0, 0.0]))
-    robot_reach: float = 0.85 
-    lb: list = field(default_factory=lambda: -2 * np.pi * np.ones(6))
-    ub: list = field(default_factory=lambda: 2 * np.pi * np.ones(6))
-    q_dot_max: np.ndarray = field(default_factory=lambda: np.array([2.18, 2.18, 2.4, 3.49, 3.49, 3.49]))  # rad/s
-    q_ddot_max: np.ndarray = field(default_factory=lambda: np.array([20.0, 20.0, 20.0, 20.0, 20.0, 20.0])) # rad/s²
+    freq: int = 25 # Hz
+    home_configuration: np.ndarray = field(default_factory=lambda: np.radians([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]))
+    robot_reach: float = 1.418 
+    lb: list = field(default_factory=lambda: np.radians([-360.0, -360.0, -540.0, -360.0, -360.0, -360.0]))
+    ub: list = field(default_factory=lambda: np.radians([360.0, 360.0, 540.0, 360.0, 360.0, 360.0]))
+    q_dot_max: np.ndarray = field(default_factory=lambda: np.radians([120.0, 120.0, 180.0, 180.0, 180.0, 180.0]))  # rad/s
+    q_ddot_max: np.ndarray = field(default_factory=lambda: np.array([20.0, 20.0, 20.0, 20.0, 20.0, 20.0])) #! Not so sure
 
 
 

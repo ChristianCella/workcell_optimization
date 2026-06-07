@@ -96,6 +96,8 @@ class FastIKFlowSolver:
             urdf_path = project_root / "ur5e_utils_mujoco" / "ur5e" / "ur5e.urdf"
         elif robot_to_use == "gofa5":
             urdf_path = project_root / "ur5e_utils_mujoco" / "gofa5" / "patched_gofa5.urdf"
+        elif robot_to_use == "fanuc_crx_10ia_l":
+            urdf_path = project_root / "ur5e_utils_mujoco" / "fanuc_crx_10ia_l" / "patched_fanuc_crx_10ia_l.urdf"
         else:
             raise ValueError(f"Unknown robot type: {robot_to_use}")
 
@@ -105,7 +107,7 @@ class FastIKFlowSolver:
                 name=f"{robot_to_use}_custom",
                 urdf_filepath=str(urdf_path),
                 active_joints=joint_names,
-                base_link="base_link",
+                base_link=ik_base_link,
                 end_effector_link_name=ik_link_training,
                 ignored_collision_pairs=[],
                 collision_capsules_by_link=None,
@@ -167,6 +169,13 @@ class FastIKFlowSolver:
                 / "ikflow" / "ikflow" / "weights"
                 / "gofa5_custom--Oct.02.2025_11-25AM"
                 / "weights-epoch=49.ckpt"
+            )
+        elif robot_to_use == "fanuc_crx_10ia_l":
+            ckpt = (
+                project_root
+                / "ikflow" / "ikflow" / "weights"
+                / "fanuc_crx_10ia_l_custom--Jun.06.2026_05-31PM"
+                / "weights-epoch=224.ckpt"
             )
         else:
             raise ValueError(f"Unknown robot type: {robot_to_use}")

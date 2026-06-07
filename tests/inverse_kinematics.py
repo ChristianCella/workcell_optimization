@@ -74,7 +74,7 @@ def main():
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the Cartesian target 
-    _, _, A_w_p = get_homogeneous_matrix(-0.55, 0.135, 0.03, 180, 0, 90)
+    _, _, A_w_p = get_homogeneous_matrix(0.55, 0.135, 0.03, 180, 0, 90)
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Set the tool
@@ -101,6 +101,8 @@ def main():
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.1, 0.0, -90.0, 0.0, 0.0) #! Fixed
     elif robot_to_use == "gofa5":
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
+    elif robot_to_use == "fanuc_crx_10ia_l":
+        _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Check
     else:
         raise ValueError(f"Unknown robot type: {robot_to_use}")
 
