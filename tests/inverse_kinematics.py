@@ -74,7 +74,7 @@ def main():
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the Cartesian target 
-    _, _, A_w_p = get_homogeneous_matrix(0.55, 0.135, 0.03, 180, 0, 90)
+    _, _, A_w_p = get_homogeneous_matrix(0.3, 0.0, 0.2, 180.0, 00.0, 0.0)
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Set the tool
@@ -165,7 +165,8 @@ def main():
             viewer.sync()
             n_cols = get_collisions(model, data, True)
             sigma_manip = inverse_manipulability(q, model, data, rob_params, tool_tip_site_id)
-            time.sleep(ik_params.show_pose_duration)
+            #time.sleep(ik_params.show_pose_duration)
+            #input("Press Enter to see the next solution…")
 
             # Save the configuration with best inverse manipulability
             if (sigma_manip < best_cost) and (n_cols == 0):

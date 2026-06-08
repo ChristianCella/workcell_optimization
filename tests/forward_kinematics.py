@@ -88,13 +88,14 @@ def main():
 
         # Desired joint configuration
         #q = rob_params.home_configuration
-        q = np.array([1.6003, -1.5921,  2.7463, -2.0521,  1.7333,  1.8209])
+        q = np.array([-5.21178690e-01,  3.95039473e-01, -1.17341625e+00, -3.04594158e+00, 2.32528604e-03,  4.25522379e-01])   
+        #q = np.zeros(rob_params.nu) # All joints at zero
         data.qpos[:rob_params.nu] = q.tolist()
         mujoco.mj_forward(model, data)
         viewer.sync()
 
         # Get the forward kinematics at a specified frame
-        pos, rot = get_cartesian_pose(ee_body_id, data, "quaternion")
+        pos, rot = get_cartesian_pose(ee_body_id, data, "rotation_matrix")
         print(f"{fonts.green}Cartesian pose: {np.round(pos, 3)}{fonts.reset}")
         print(f"{fonts.green}Cartesian orientation: {np.round(rot, 3)}{fonts.reset}")
         input("Press Enter to close the viewer…")

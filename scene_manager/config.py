@@ -6,8 +6,8 @@ piece_to_use = "cube" # "cube", "t_shape", or "reconstructed"
 ik_solver_to_use = "dls" # "ikflow" or "dls"
 save_data = False
 import_data = False
-v_red_per = 0.5
-a_red_per = 0.5
+v_red_per = 0.1
+a_red_per = 0.1
 
 if robot_to_use == "ur5e":
     rob_folder = "ur5e"
