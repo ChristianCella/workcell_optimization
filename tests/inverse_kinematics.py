@@ -118,6 +118,7 @@ def main():
         # Loop through the discrete configurations
         sols_ok, fk_ok = [], []
         start_time = time.time()
+
         for i in range(ik_params.N_disc): 
             R_w_p_rotated = R.from_euler('XYZ', [theta_w_p_x_0, theta_w_p_y_0, theta_w_p_z_0 + i * 2 * np.pi / ik_params.N_disc], degrees=False).as_matrix()
             A_w_p_rotated = np.eye(4)
@@ -133,14 +134,15 @@ def main():
             sols_disc, fk_disc = solve_ik_fast(tgt_tensor, N = ik_params.N_samples, fast_solver=fast_ik_solver) # Find N solutions for this target
             sols_ok.append(sols_disc)
             fk_ok.append(fk_disc)
-
+            
         # bring solutions back to host for numpy()
         sols_ok = torch.cat(sols_ok, dim=0)
-        fk_ok = torch.cat(fk_ok,   dim=0)
+        fk_ok = torch.cat(fk_ok, dim=0)
         sols_np = sols_ok.cpu().numpy()
         fk_np = fk_ok.cpu().numpy()
         end_time = time.time()
         print(f"IK solutions computed in {end_time - start_time:.2f} seconds, that is {(end_time - start_time)/60:.2f} minutes")
+        input("Press Enter to visualize the IK solutions one by one…")
 
         # Update the pose of the Cartesian target
         quat_frame = rotm_to_quaternion(A_w_p[:3, :3])
@@ -165,7 +167,7 @@ def main():
             viewer.sync()
             n_cols = get_collisions(model, data, True)
             sigma_manip = inverse_manipulability(q, model, data, rob_params, tool_tip_site_id)
-            #time.sleep(ik_params.show_pose_duration)
+            time.sleep(ik_params.show_pose_duration)
             #input("Press Enter to see the next solution…")
 
             # Save the configuration with best inverse manipulability

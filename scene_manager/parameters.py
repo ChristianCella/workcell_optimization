@@ -4,9 +4,9 @@ import numpy as np
 @dataclass
 class TestIK:
     verbose: bool = True
-    N_samples: int = 100  # 150
-    N_disc: int = 4  # 60
-    show_pose_duration: int = 0.05  # Seconds to show each pose
+    N_samples: int = 300  # 150
+    N_disc: int = 90  # 60
+    show_pose_duration: int = 0.01  # Seconds to show each pose
 
 @dataclass
 class Ur5eRobot:
@@ -34,6 +34,17 @@ class GoFaRobot:
 
 @dataclass 
 class FanucCrx10iaLRobot:
+    nu: int = 6 # Number of joints
+    freq: int = 25 # Hz
+    home_configuration: np.ndarray = field(default_factory=lambda: np.radians([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]))
+    robot_reach: float = 1.418 
+    lb: list = field(default_factory=lambda: np.radians([-360.0, -360.0, -540.0, -360.0, -360.0, -360.0]))
+    ub: list = field(default_factory=lambda: np.radians([360.0, 360.0, 540.0, 360.0, 360.0, 360.0]))
+    q_dot_max: np.ndarray = field(default_factory=lambda: np.radians([120.0, 120.0, 180.0, 180.0, 180.0, 180.0]))  # rad/s
+    q_ddot_max: np.ndarray = field(default_factory=lambda: np.array([20.0, 20.0, 20.0, 20.0, 20.0, 20.0])) #! Not so sure
+
+@dataclass 
+class DoosanA0509Robot: #! CHECK PARAMETERS !!!
     nu: int = 6 # Number of joints
     freq: int = 25 # Hz
     home_configuration: np.ndarray = field(default_factory=lambda: np.radians([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]))

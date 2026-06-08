@@ -1,6 +1,6 @@
-from parameters import Ur5eRobot, GoFaRobot, FanucCrx10iaLRobot
+from parameters import Ur5eRobot, GoFaRobot, FanucCrx10iaLRobot, DoosanA0509Robot
 
-robot_to_use = "fanuc_crx_10ia_l" # "ur5e" or "gofa5" or "fanuc_crx_10ia_l"
+robot_to_use = "doosan_a0509" # "ur5e" or "gofa5" or "fanuc_crx_10ia_l" or "doosan_a0509"
 tool_to_use = "painting_gun" # "welding_gun" or "screwdriver"
 piece_to_use = "cube" # "cube", "t_shape", or "reconstructed"
 ik_solver_to_use = "dls" # "ikflow" or "dls"
@@ -30,6 +30,13 @@ elif robot_to_use == "fanuc_crx_10ia_l":
     joint_names = ["J1", "J2", "J3", "J4", "J5", "J6"] 
     ik_base_link = "base"
     ik_link_training = "flange"
+elif robot_to_use == "doosan_a0509":
+    rob_folder = "doosan_a0509"
+    rob_name = "doosan_a0509.xml"
+    rob_par = DoosanA0509Robot()
+    joint_names = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
+    ik_base_link = "base_link"
+    ik_link_training = "tool0"
 else:
     raise ValueError(f"Unknown robot type: {robot_to_use}")
 

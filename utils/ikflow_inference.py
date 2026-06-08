@@ -229,49 +229,9 @@ class FastIKFlowSolver:
             fk = torch.empty(0,7)
         return val_sols, fk
     
-    def solve_rotational_sweep(self, base_pose: torch.Tensor, N_samples: int = 500, N_disc: int = 18):
-        """
-        Sequential sweep: each of the N_disc poses solved independently
-        with N_samples each.
-        """
-        base = base_pose.to(self.device).view(7)
-        pos, quat = base[:3], base[3:]
-
-        # build Z-axis rotation quaternions
-        angles = torch.linspace(0, 2*torch.pi, N_disc, device=self.device)
-        half = angles * 0.5 #! q = (cos(θ/2), sin(θ/2) * u) => I need θ/2
-        qz = torch.stack([
-            torch.cos(half),
-            torch.zeros_like(half),
-            torch.zeros_like(half),
-            torch.sin(half),
-        ], dim=1) 
-
-        # ! Incrementally rotate around z
-        results = []
-        for i in range(N_disc):
-            # ! q_start * q_z
-            w1,x1,y1,z1 = quat 
-            w2,x2,y2,z2 = qz[i]
-            qr = torch.tensor([
-                w1*w2 - x1*x2 - y1*y2 - z1*z2,
-                w1*x2 + x1*w2 + y1*z2 - z1*y2,
-                w1*y2 - x1*z2 + y1*w2 + z1*x2,
-                w1*z2 + x1*y2 - y1*x2 + z1*w2,
-            ], device=self.device)
-
-            pose_i = torch.cat([pos, qr], dim=0)
-            sols_i, fk_i = self.solve_ik_ultra_fast(pose_i, N_samples)
-            results.append((sols_i, fk_i))
-
-        return results
-
 # Additional methods
 def solve_ik_fast(target_pose: torch.Tensor, N: int = 1000, fast_solver: FastIKFlowSolver = None):
     return fast_solver.solve_ik_ultra_fast(target_pose, N)
-
-def solve_ik_rotational_sweep(base_pose: torch.Tensor, N_samples: int = 5000, N_disc: int = 360, fast_solver: FastIKFlowSolver = None):
-    return fast_solver.solve_rotational_sweep(base_pose, N_samples, N_disc)
 
 # Test the code
 if __name__ == "__main__":
@@ -289,10 +249,3 @@ if __name__ == "__main__":
     sols, fk = solve_ik_fast(target, N=1000, fast_solver=fast_ik_solver)
     print(f"Found {len(sols)} solutions in {(time.time()-t0)*1000:.1f} ms")
 
-    # Solve task redundancy
-    print("\n Resolution of the task redundancy")
-    t1 = time.time()
-    sweeps = solve_ik_rotational_sweep(target, N_samples=200, N_disc=72, fast_solver=fast_ik_solver)
-    dt = time.time() - t1
-    total = sum(len(s) for s,_ in sweeps)  
-    print(f"Total solutions: {total}; Time: {dt:.3f}s; Avg: {1000*dt/72:.2f}ms/pose")
