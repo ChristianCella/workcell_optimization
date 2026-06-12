@@ -70,11 +70,11 @@ def main():
     tool_tip_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, 'tool_site')
 
     # Set robot base
-    _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0, 0, 0)
+    _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the Cartesian target 
-    _, _, A_w_p = get_homogeneous_matrix(0.3, 0.0, 0.2, 180.0, 00.0, 0.0)
+    _, _, A_w_p = get_homogeneous_matrix(0.15, -0.38, 0.32, 180.0, 0.0, 0.0)
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
 
     # Set the tool

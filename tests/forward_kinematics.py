@@ -60,7 +60,7 @@ def main():
     ee_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ee_frame_visual_only")
     
     # Set robot base 
-    _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 180.0)
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
 
     # Set the tool
@@ -88,14 +88,15 @@ def main():
 
         # Desired joint configuration
         #q = rob_params.home_configuration
-        q = np.array([-5.21178690e-01,  3.95039473e-01, -1.17341625e+00, -3.04594158e+00, 2.32528604e-03,  4.25522379e-01])   
+        #q = np.array([-5.21178690e-01,  3.95039473e-01, -1.17341625e+00, -3.04594158e+00, 2.32528604e-03,  4.25522379e-01])   
         #q = np.zeros(rob_params.nu) # All joints at zero
+        q = np.radians([-50.90, -102.70, -105.95, -36.60, 85.60, 45.94])
         data.qpos[:rob_params.nu] = q.tolist()
         mujoco.mj_forward(model, data)
         viewer.sync()
 
         # Get the forward kinematics at a specified frame
-        pos, rot = get_cartesian_pose(ee_body_id, data, "rotation_matrix")
+        pos, rot = get_cartesian_pose(ee_body_id, data, "euler")
         print(f"{fonts.green}Cartesian pose: {np.round(pos, 3)}{fonts.reset}")
         print(f"{fonts.green}Cartesian orientation: {np.round(rot, 3)}{fonts.reset}")
         input("Press Enter to close the viewer…")

@@ -5,6 +5,7 @@ import numpy as np
 import time
 import sys
 import os
+import matplotlib.pyplot as plt
 
 #* Directory for scene creation
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
@@ -20,8 +21,9 @@ sys.path.append(utils_dir)
 import fonts
 from transformations import rotm_to_quaternion, rotm2euler, get_homogeneous_matrix
 from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability
-from generate_path import create_path
-from generate_trajectory import create_trajectory
+from generate_path import create_path, smooth_q_path
+from generate_trajectory import create_trajectory, compute_time_stamps_totg
+from densify_path import densify_cartesian_path
 
 def main():
 
@@ -81,11 +83,11 @@ def main():
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.4, 0.0, 0.0, 180.0) 
             _, _, A_w_p = get_homogeneous_matrix(0.0, -1.0, 0.6, 0.0, 0.0, 180.0)
         elif piece_to_use == "cube":
-            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 180.0) 
-            _, _, A_w_p = get_homogeneous_matrix(0.0, -0.75, 0.0, 0.0, 0.0, 0.0)
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 180.0)  #0.25 in z
+            _, _, A_w_p = get_homogeneous_matrix(0.0, -0.5, 0.0, 0.0, 0.0, 0.0)
         elif piece_to_use == "reconstructed":
-            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 180.0)
-            _, _, A_w_p = get_homogeneous_matrix(0.0, 0.65, -0.3, 0.0, 0.0, -90.0)
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.3, 0.0, 0.0, 180.0)
+            _, _, A_w_p = get_homogeneous_matrix(0.0, 0.65, -0.2, 0.0, 0.0, -90.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.1, 0.0, -90.0, 0.0, 0.0) #! Fixed
@@ -121,6 +123,7 @@ def main():
     # Set the robot in home
     set_body_pose(model, data, base_body_id, A_w_b[:3, 3], rotm_to_quaternion(A_w_b[:3, :3]))
     data.qpos[:rob_params.nu] = rob_params.home_configuration.tolist()
+    #data.qpos[:rob_params.nu] = np.array([-0.861, 4.956, -1.675, -1.711, 1.57, 3.852]).tolist() 
   
     # Set the piece in the environment
     set_body_pose(model, data, piece_body_id, A_w_p[:3, 3], rotm_to_quaternion(A_w_p[:3, :3]))
@@ -135,9 +138,9 @@ def main():
         set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) 
         _, _, A_t1_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0)
     elif tool_to_use == "painting_gun":
-        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) 
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #0.0
         set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) 
-        _, _, A_t1_t = get_homogeneous_matrix(0.0, 0.0, 0.21, 0.0, 0.0, 0.0) 
+        _, _, A_t1_t = get_homogeneous_matrix(0.0, 0.0, 0.21, 0.0, 0.0, 0.0) # 0.21
     else:
         raise ValueError(f"Unknown tool type: {tool_to_use}")
 
@@ -158,10 +161,13 @@ def main():
         rot = data.body(frame_id).xmat.reshape(3, 3)
         euler_angles = rotm2euler(rot, degrees=False)
         cartesian_path.append((pos, euler_angles))
-  
+
+    #* Densify the Cartesian path (NOTE: use a path homogeneously discretized)
+    cartesian_path = densify_cartesian_path(cartesian_path, eef_step=0.005)
+
     #! Solve IK on the trajectory
     with mujoco.viewer.launch_passive(model, data) as viewer:
-        input("Press Enter to start visualizing IK-flow solutions…")
+        input(f"Press Enter to start visualizing {ik_solver_to_use} solutions…")
         q_path = []
 
         if import_data:
@@ -169,7 +175,8 @@ def main():
         else:
             #* Get the path (no trajectory)
             q_path, reach, cols, total_time = create_path(cartesian_path, model, data, rob_params, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, save_data)
-            
+            q_path = smooth_q_path(q_path, window=20, polyorder=3)  # very light, just a safety net
+
             if ik_solver_to_use == "dls":
                 unreachable = [i for i, v in enumerate(reach) if v == 1]
                 print(f"{fonts.green}Waypoints in positions {unreachable} are not reachable{fonts.reset}")
@@ -202,30 +209,31 @@ def main():
             #* Display total time
             print(f"{fonts.green}ik optimization completed in {total_time:.2f} seconds!{fonts.reset}")
 
-        #* Time-optimal path parametrization
+        #* Time-optimal path parametrization (topp)
         q_traj, _, _, _, _ = create_trajectory(
             q_path=q_path,
             rob_params=rob_params,
             dt=1/rob_params.freq,
             solver_wrapper="ecos",
             #solver_wrapper="seidel",
+            #solver_wrapper="cvxpy",
             save_data=save_data,
             robot_to_use=robot_to_use,
             ik_solver_to_use=ik_solver_to_use,
             v_scaling=v_red_per,
             a_scaling=a_red_per
         )
-                    
+                 
         input("Press Enter to visualize the best path found")
         #* Set robot in the home configuration
         data.qpos[:rob_params.nu] = rob_params.home_configuration.tolist()
         mujoco.mj_forward(model, data)
-        viewer.sync()
+        viewer.sync()       
 
         # Wait 2 seconds before starting the motion
         time.sleep(2)
 
-        #* Updatae the robot configuration along the trajectory
+        #* Update the robot configuration along the trajectory
         dt = 1/rob_params.freq
         t0 = time.perf_counter()
         for i, q in enumerate(q_traj):

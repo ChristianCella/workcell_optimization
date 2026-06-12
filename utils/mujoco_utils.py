@@ -57,50 +57,40 @@ def setup_target_frames(model, data, ref_body_ids, target_poses):
     mujoco.mj_forward(model, data)
 
 def solve_ik_dls(model, data, rob_par, tool_tip_site_id, target_pos, target_rot,
-                 q_init, max_iter=100, tol=1e-5, lam=0.05):
-    """
-    Damped Least Squares IK solver.
-    target_pos : (3,)   desired position in world frame
-    target_rot : (3,3)  desired rotation matrix in world frame
-    q_init     : (6,)   initial joint configuration (use q_old!)
-    """
+                 q_init, max_iter=100, tol=1e-5, lam_max=0.1, eps=1e-6):
     q = q_init.copy()
-    res = 1 # Assume failure
+    res = 1
 
     for _ in range(max_iter):
-        # Forward kinematics
         data.qpos[:rob_par.nu] = q
         mujoco.mj_forward(model, data)
 
-        # Position error
         curr_pos = data.site_xpos[tool_tip_site_id]
         err_pos  = target_pos - curr_pos
 
-        # Orientation error (from rotation matrix difference)
         curr_rot = data.site_xmat[tool_tip_site_id].reshape(3, 3)
         R_err    = target_rot @ curr_rot.T
-        # Convert skew-symmetric part to axis-angle error vector
         err_rot  = 0.5 * np.array([
             R_err[2, 1] - R_err[1, 2],
             R_err[0, 2] - R_err[2, 0],
             R_err[1, 0] - R_err[0, 1]
         ])
 
-        # Full 6D error
         err = np.concatenate([err_pos, err_rot])
-        if np.linalg.norm(err) < tol:
-            res = 0 # Success
+        err_norm = np.linalg.norm(err)
+
+        if err_norm < tol:
+            res = 0
             break
 
-        # Jacobian (6 x n_joints)
         J = compute_jacobian(model, data, rob_par, tool_tip_site_id)
 
-        # DLS step: Δq = Jᵀ (J Jᵀ + λ²I)⁻¹ Δx
-        JJT  = J @ J.T
-        dq   = J.T @ np.linalg.solve(JJT + lam**2 * np.eye(6), err)
-        q   += dq
+        # Adaptive damping: small error → small lambda → faster convergence
+        lam = lam_max * (err_norm / (err_norm + eps))
 
-    # If after max iteration res is still 1, it means the error is not < tol
+        JJT = J @ J.T
+        dq  = J.T @ np.linalg.solve(JJT + lam**2 * np.eye(6), err)
+        q  += dq
 
     return q, res
 
