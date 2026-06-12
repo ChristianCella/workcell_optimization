@@ -40,6 +40,7 @@ def get_collisions(model, data, verbose):
             name1 = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, c.geom1)
             name2 = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, c.geom2)
             if verbose: print(f" - {name1} <-> {name2}")
+            if verbose: print(f"Penetration depth: {c.dist}")
     return data.ncon
 
 def inverse_manipulability(q, model, data, rob_par, tool_site_id):

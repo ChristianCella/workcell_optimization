@@ -100,7 +100,7 @@ def main():
             _, _, A_w_p = get_homogeneous_matrix(0.75, 0.0, 0.0, 0.0, 0.0, 90.0)
         elif piece_to_use == "reconstructed":
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-            _, _, A_w_p = get_homogeneous_matrix(-0.5, 0.0, -0.3, 0.0, 0.0, 0.0)
+            _, _, A_w_p = get_homogeneous_matrix(-0.5, 0.0, -0.4, 0.0, 0.0, 0.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
@@ -117,6 +117,19 @@ def main():
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
+    elif robot_to_use == "fairino_FR10":
+        if piece_to_use == "t_shape":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.4, 0.0, 0.0, 180.0) 
+            _, _, A_w_p = get_homogeneous_matrix(0.0, -1.5, 0.7, 0.0, 0.0, 180.0)
+        elif piece_to_use == "cube":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.1, 0.0, 0.0, 180.0)  #0.25 in z
+            _, _, A_w_p = get_homogeneous_matrix(0.0, -0.5, 0.0, 0.0, 0.0, 0.0)
+        elif piece_to_use == "reconstructed":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.3, 0.0, 0.0, 180.0)
+            _, _, A_w_p = get_homogeneous_matrix(0.0, 0.65, -0.2, 0.0, 0.0, -90.0)
+        else:
+            raise ValueError(f"Unknown piece type: {piece_to_use}")
+        _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.105, 0.0, 0.0, 0.0) #! Fixed
     else:
         raise ValueError(f"Unknown robot type: {robot_to_use}")
     

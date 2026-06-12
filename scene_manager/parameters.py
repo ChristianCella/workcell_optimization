@@ -54,6 +54,17 @@ class DoosanA0509Robot: #! CHECK PARAMETERS !!!
     q_dot_max: np.ndarray = field(default_factory=lambda: np.radians([120.0, 120.0, 180.0, 180.0, 180.0, 180.0]))  # rad/s
     q_ddot_max: np.ndarray = field(default_factory=lambda: np.array([20.0, 20.0, 20.0, 20.0, 20.0, 20.0])) #! Not so sure
 
+@dataclass
+class FairinoFR10Robot:
+    nu: int = 6
+    freq: int = 100
+    home_configuration: np.ndarray = field(default_factory=lambda: np.radians([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]))
+    robot_reach: float = 1.4
+    lb: np.ndarray = field(default_factory=lambda: np.array([-3.0543, -4.6251, -2.8274, -4.6251, -3.0543, -3.0543]))
+    ub: np.ndarray = field(default_factory=lambda: np.array([ 3.0543,  1.4835,  2.8274,  1.4835,  3.0543,  3.0543]))
+    q_dot_max: np.ndarray = field(default_factory=lambda: np.array([3.15, 3.15, 3.15, 3.20, 3.20, 3.20]))
+    q_ddot_max: np.ndarray = field(default_factory=lambda: np.array([3.1, 3.1, 3.1, 3.1, 3.1, 3.1]))  
+
 
 
 

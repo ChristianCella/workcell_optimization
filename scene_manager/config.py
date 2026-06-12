@@ -1,13 +1,13 @@
-from parameters import Ur5eRobot, GoFaRobot, FanucCrx10iaLRobot, DoosanA0509Robot
+from parameters import Ur5eRobot, GoFaRobot, FanucCrx10iaLRobot, DoosanA0509Robot, FairinoFR10Robot
 
-robot_to_use = "gofa5" # "ur5e" or "gofa5" or "fanuc_crx_10ia_l" or "doosan_a0509"
-tool_to_use = "welding_gun" # "welding_gun" or "screwdriver"
-piece_to_use = "cube" # "cube", "t_shape", or "reconstructed"
-ik_solver_to_use = "ikflow" # "ikflow" or "dls"
+robot_to_use = "ur5e" # "ur5e" or "gofa5" or "fanuc_crx_10ia_l" or "doosan_a0509" or "fairino_FR10"
+tool_to_use = "painting_gun" # "welding_gun" or "screwdriver" or "painting_gun"
+piece_to_use = "reconstructed" # "cube", "t_shape", or "reconstructed"
+ik_solver_to_use = "dls" # "ikflow" or "dls"
 save_data = False
 import_data = False
-v_red_per = 0.5
-a_red_per = 0.5
+v_red_per = 0.1
+a_red_per = 0.1
 
 if robot_to_use == "ur5e":
     rob_folder = "ur5e"
@@ -37,6 +37,13 @@ elif robot_to_use == "doosan_a0509":
     joint_names = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
     ik_base_link = "base_link"
     ik_link_training = "tool0"
+elif robot_to_use == "fairino_FR10":
+    rob_folder = "fairino"
+    rob_name = "fairino_fr10.xml"
+    rob_par = FairinoFR10Robot()
+    joint_names = ["j1", "j2", "j3", "j4", "j5", "j6"]
+    ik_base_link = "base_link"
+    ik_link_training = "wrist3_link"
 else:
     raise ValueError(f"Unknown robot type: {robot_to_use}")
 
