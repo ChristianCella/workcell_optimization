@@ -6,6 +6,7 @@ import time
 import sys
 import os
 import matplotlib.pyplot as plt
+from scipy.spatial.transform import Rotation as R
 
 #* Directory for scene creation
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
@@ -20,7 +21,7 @@ utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(utils_dir)
 import fonts
 from transformations import rotm_to_quaternion, rotm2euler, get_homogeneous_matrix
-from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability
+from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, solve_ik_dls, compute_jacobian
 from generate_path import create_path, smooth_q_path
 from generate_trajectory import create_trajectory, compute_time_stamps_totg
 from densify_path import densify_cartesian_path
@@ -99,8 +100,9 @@ def main():
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 0.0) 
             _, _, A_w_p = get_homogeneous_matrix(0.75, 0.0, 0.0, 0.0, 0.0, 90.0)
         elif piece_to_use == "reconstructed":
-            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-            _, _, A_w_p = get_homogeneous_matrix(-0.5, 0.0, -0.4, 0.0, 0.0, 0.0)
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 0.0)
+            #_, _, A_w_p = get_homogeneous_matrix(-0.5, 0.0, -0.1, 0.0, 0.0, 0.0)
+            _, _, A_w_p = get_homogeneous_matrix(-0.6, 0.0, 0.9, 0.0, 45.0, 0.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
@@ -143,7 +145,7 @@ def main():
 
     # Set the tool
     if tool_to_use == "welding_gun":
-        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) 
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 180.0) 
         set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) 
         _, _, A_t1_t = get_homogeneous_matrix(0.0, -0.083033, 0.31549, 45.0, 0.0, 0.0)
     elif tool_to_use == "screwdriver":
@@ -151,7 +153,7 @@ def main():
         set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) 
         _, _, A_t1_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0)
     elif tool_to_use == "painting_gun":
-        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #0.0
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 180.0) #0.0
         set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) 
         _, _, A_t1_t = get_homogeneous_matrix(0.0, 0.0, 0.21, 0.0, 0.0, 0.0) # 0.21
     else:
@@ -176,21 +178,38 @@ def main():
         cartesian_path.append((pos, euler_angles))
 
     #* Densify the Cartesian path (NOTE: use a path homogeneously discretized)
-    cartesian_path = densify_cartesian_path(cartesian_path, eef_step=0.005)
+    cartesian_path = densify_cartesian_path(cartesian_path, eef_step=0.01)
 
     #! Solve IK on the trajectory
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input(f"Press Enter to start visualizing {ik_solver_to_use} solutions…")
         q_path = []
+        q_path_refined = []
 
         if import_data:
             q_path = np.loadtxt(os.path.join(base_dir, f"workcell_optimization/results/q_path_{robot_to_use}_{ik_solver_to_use}.csv"), delimiter=",", skiprows=1)
         else:
             #* Get the path (no trajectory)
             q_path, reach, cols, total_time = create_path(cartesian_path, model, data, rob_params, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, save_data)
-            q_path = smooth_q_path(q_path, window=20, polyorder=3)  # very light, just a safety net
+
+            #* Display
+            q_path_display = np.asarray(q_path)
+
+            fig, axes = plt.subplots(6, 1, figsize=(12, 10), sharex=True)
+            for j in range(6):
+                axes[j].plot(q_path_display[:, j])
+                axes[j].set_ylabel(f'q{j+1} [rad]')
+                axes[j].grid(True)
+            axes[-1].set_xlabel('Waypoint index')
+            fig.suptitle('Joint path')
+            plt.tight_layout()
+            plt.show()
+
+            #* Smooth the path
+            #q_path = smooth_q_path(q_path, window=20, polyorder=3)
 
             if ik_solver_to_use == "dls":
+
                 unreachable = [i for i, v in enumerate(reach) if v == 1]
                 print(f"{fonts.green}Waypoints in positions {unreachable} are not reachable{fonts.reset}")
 
@@ -210,12 +229,13 @@ def main():
                         input("Press Enter to visualize the singularity…")
                         return
             elif ik_solver_to_use == "ikflow": #* Most checks are already built-in
+                   
                 if sum(cols) > 0:
                     print(f"{fonts.red}Warning: {sum(cols)} waypoint(s) in the path are in collision!{fonts.reset}")
-                    return
+                    #return
                 if sum(reach) > 0:
                     print(f"{fonts.red}Warning: {sum(reach)} waypoint(s) in the path are unreachable!{fonts.reset}")
-                    return
+                    #return
             else:
                 raise ValueError(f"Unknown IK solver type: {ik_solver_to_use}")
 
@@ -253,6 +273,8 @@ def main():
             data.qpos[:rob_params.nu] = q
             mujoco.mj_forward(model, data)
             viewer.sync()
+            det_jac = np.linalg.det(compute_jacobian(model, data, rob_params, tool_tip_site_id))
+            print(f"The determiannt is {det_jac:.6f}")
 
             target_time = t0 + (i + 1) * dt
             sleep_time = target_time - time.perf_counter()

@@ -1,8 +1,8 @@
 from parameters import Ur5eRobot, GoFaRobot, FanucCrx10iaLRobot, DoosanA0509Robot, FairinoFR10Robot
 
-robot_to_use = "ur5e" # "ur5e" or "gofa5" or "fanuc_crx_10ia_l" or "doosan_a0509" or "fairino_FR10"
+robot_to_use = "fairino_FR10" # "ur5e" or "gofa5" or "fanuc_crx_10ia_l" or "doosan_a0509" or "fairino_FR10"
 tool_to_use = "painting_gun" # "welding_gun" or "screwdriver" or "painting_gun"
-piece_to_use = "reconstructed" # "cube", "t_shape", or "reconstructed"
+piece_to_use = "cube" # "cube", "t_shape", or "reconstructed"
 ik_solver_to_use = "dls" # "ikflow" or "dls"
 save_data = False
 import_data = False

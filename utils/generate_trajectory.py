@@ -27,22 +27,22 @@ def create_trajectory(
     q_dot_max = np.asarray(rob_params.q_dot_max, dtype=np.float64)
     q_ddot_max = np.asarray(rob_params.q_ddot_max, dtype=np.float64)
 
+    '''
     # Replace np.linspace with joint-space arc length
     dq = np.diff(q_path, axis=0)
     seg_lengths = np.linalg.norm(dq, axis=1)
     arc_lengths = np.concatenate([[0], np.cumsum(seg_lengths)])
     arc_lengths /= arc_lengths[-1]  # normalize to [0, 1]
-
     path = ta.SplineInterpolator(arc_lengths, q_path)
-
     '''
+
     # Define geometric path
     path = ta.SplineInterpolator(
         np.linspace(0, 1, len(q_path)),
         q_path,
         bc_type="clamped"
     )
-    '''
+
 
     # Define velocity and acceleration limits
     vlim = v_scaling * np.vstack([-q_dot_max, q_dot_max]).T.astype(np.float64)
