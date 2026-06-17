@@ -7,7 +7,7 @@ from scipy.spatial.transform import Rotation as R
 # Path to your XML file
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.append(base_dir)
-model_path = os.path.join(base_dir, "ur5e_utils_mujoco/fairino/fairino_FR10.xml")
+model_path = os.path.join(base_dir, "ur5e_utils_mujoco/pieces/svin000412.xml")
 
 # Load the model
 model = mujoco.MjModel.from_xml_path(model_path)

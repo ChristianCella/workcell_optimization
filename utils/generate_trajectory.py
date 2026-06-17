@@ -10,14 +10,11 @@ from mujoco_utils import get_collisions
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
 #! TOPPRA
-def create_trajectory(
+def topp_ra(
     q_path,
     rob_params,
     dt=0.002,
     solver_wrapper="ecos",
-    save_data=False,
-    robot_to_use=None,
-    ik_solver_to_use=None,
     v_scaling=1.0,
     a_scaling=1.0
 ):
@@ -75,58 +72,20 @@ def create_trajectory(
     print(f"Trajectory points   : {len(t_fine)} samples at {1 / dt:.0f} Hz")
     print(f"q_traj shape        : {q_traj.shape}")
 
-    # Optional save
-    results_dir = os.path.join(base_dir, "workcell_optimization/results")
-    if save_data:
-        if results_dir is None:
-            raise ValueError("results_dir must be provided when save_data=True.")
-
-        os.makedirs(results_dir, exist_ok=True)
-
-        suffix = ""
-        if robot_to_use is not None and ik_solver_to_use is not None:
-            suffix = f"_{robot_to_use}_{ik_solver_to_use}"
-
-        header = ",".join([f"q{i+1}" for i in range(q_path.shape[1])])
-
-        np.savetxt(
-            os.path.join(results_dir, f"q_traj{suffix}.csv"),
-            q_traj,
-            delimiter=",",
-            header=header,
-            comments=""
-        )
-
-        np.savetxt(
-            os.path.join(results_dir, f"qd_traj{suffix}.csv"),
-            qd_traj,
-            delimiter=",",
-            header=header,
-            comments=""
-        )
-
-        np.savetxt(
-            os.path.join(results_dir, f"qdd_traj{suffix}.csv"),
-            qdd_traj,
-            delimiter=",",
-            header=header,
-            comments=""
-        )
-
-        print(f"Trajectories saved to {results_dir}")
-
     return q_traj, qd_traj, qdd_traj, t_fine, duration
 
 import numpy as np
 
 #! TOTG
-def compute_time_stamps_totg(q_path, q_dot_max, q_ddot_max, v_scaling=1.0, a_scaling=1.0, dt=0.002):
+def totg(q_path, rob_params, v_scaling=1.0, a_scaling=1.0, dt=0.002):
     """
     Time Optimal Trajectory Generation with trapezoidal velocity profiles.
     Replicates MoveIt's IterativeParabolicTimeParameterization logic.
     """
     q_path = np.asarray(q_path, dtype=np.float64)
     n = len(q_path)
+    q_dot_max = np.asarray(rob_params.q_dot_max, dtype=np.float64)
+    q_ddot_max = np.asarray(rob_params.q_ddot_max, dtype=np.float64)
     vmax = v_scaling * np.asarray(q_dot_max)
     amax = a_scaling * np.asarray(q_ddot_max)
 

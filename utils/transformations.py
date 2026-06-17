@@ -44,6 +44,7 @@ def get_homogeneous_matrix(tx, ty, tz, rx, ry, rz):
     return t_vec, R_mat, A_mat
 
 if __name__ == "__main__":
+    '''
     theta_x = 180
     theta_y = 0
     theta_z = 0
@@ -51,3 +52,7 @@ if __name__ == "__main__":
     print("Quaternion:", q)
     rotm = R.from_quat([q[1], q[2], q[3], q[0]]).as_matrix()
     print("Rotation Matrix:\n", rotm)
+    '''
+    q = [0, 0.70711, -0.70711, 0]  # [w, x, y, z]
+    eul = quaternion_to_euler(q, degrees=True)
+    print("Euler angles (degrees):", eul)

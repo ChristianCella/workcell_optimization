@@ -2,11 +2,10 @@
 import mujoco
 import mujoco.viewer
 import numpy as np
-import time
-import sys
-import os
+import sys, os, time, re
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
+from collections import defaultdict
 
 #* Directory for scene creation
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scene_manager')))
@@ -21,9 +20,9 @@ utils_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../utils'))
 sys.path.append(utils_dir)
 import fonts
 from transformations import rotm_to_quaternion, rotm2euler, get_homogeneous_matrix
-from mujoco_utils import set_body_pose, get_collisions, inverse_manipulability, solve_ik_dls, compute_jacobian
+from mujoco_utils import set_body_pose, compute_jacobian
 from generate_path import create_path, smooth_q_path
-from generate_trajectory import create_trajectory, compute_time_stamps_totg
+from generate_trajectory import topp_ra, totg
 from densify_path import densify_cartesian_path
 
 def main():
@@ -89,6 +88,9 @@ def main():
         elif piece_to_use == "reconstructed":
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.3, 0.0, 0.0, 180.0)
             _, _, A_w_p = get_homogeneous_matrix(0.0, 0.65, -0.2, 0.0, 0.0, -90.0)
+        elif piece_to_use == "svin000412":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 180.0)
+            _, _, A_w_p = get_homogeneous_matrix(0.0, -0.5, 0.0, 0.0, 0.0, 0.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.1, 0.0, -90.0, 0.0, 0.0) #! Fixed
@@ -100,29 +102,35 @@ def main():
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 0.0) 
             _, _, A_w_p = get_homogeneous_matrix(0.75, 0.0, 0.0, 0.0, 0.0, 90.0)
         elif piece_to_use == "reconstructed":
-            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.25, 0.0, 0.0, 0.0)
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             #_, _, A_w_p = get_homogeneous_matrix(-0.5, 0.0, -0.1, 0.0, 0.0, 0.0)
-            _, _, A_w_p = get_homogeneous_matrix(-0.6, 0.0, 0.9, 0.0, 45.0, 0.0)
+            _, _, A_w_p = get_homogeneous_matrix(-0.5, 0.0, -0.3, 0.0, 0.0, 0.0)
+        elif piece_to_use == "svin000412":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            _, _, A_w_p = get_homogeneous_matrix(0.65, 0.0, 0.0, 0.0, 0.0, 90.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
     elif robot_to_use == "fanuc_crx_10ia_l":
         if piece_to_use == "t_shape":
-            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-            _, _, A_w_p = get_homogeneous_matrix(0.0, 1.0, 0.6, 0.0, 0.0, 0.0)
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.15, 0.0, 0.0, 0.0)
+            _, _, A_w_p = get_homogeneous_matrix(0.0, 1.0, 0.7, 0.0, 0.0, 0.0)
         elif piece_to_use == "cube":
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) 
             _, _, A_w_p = get_homogeneous_matrix(0.75, 0.0, 0.0, 0.0, 0.0, 90.0)
         elif piece_to_use == "reconstructed":
-            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.3, 0.0, 0.0, 0.0)
             _, _, A_w_p = get_homogeneous_matrix(-0.5, 0.0, -0.3, 0.0, 0.0, 0.0)
+        elif piece_to_use == "svin000412":
+            _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            _, _, A_w_p = get_homogeneous_matrix(0.65, 0.0, 0.0, 0.0, 0.0, 90.0)
         else:
             raise ValueError(f"Unknown piece type: {piece_to_use}")
         _, _, A_wl3_ee = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #! Fixed
     elif robot_to_use == "fairino_FR10":
         if piece_to_use == "t_shape":
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.4, 0.0, 0.0, 180.0) 
-            _, _, A_w_p = get_homogeneous_matrix(0.0, -1.5, 0.7, 0.0, 0.0, 180.0)
+            _, _, A_w_p = get_homogeneous_matrix(0.0, -1.2, 0.7, 0.0, 0.0, 180.0)
         elif piece_to_use == "cube":
             _, _, A_w_b = get_homogeneous_matrix(0.0, 0.0, 0.1, 0.0, 0.0, 180.0)  #0.25 in z
             _, _, A_w_p = get_homogeneous_matrix(0.0, -0.5, 0.0, 0.0, 0.0, 0.0)
@@ -145,7 +153,7 @@ def main():
 
     # Set the tool
     if tool_to_use == "welding_gun":
-        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 180.0) 
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) 
         set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) 
         _, _, A_t1_t = get_homogeneous_matrix(0.0, -0.083033, 0.31549, 45.0, 0.0, 0.0)
     elif tool_to_use == "screwdriver":
@@ -153,7 +161,7 @@ def main():
         set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) 
         _, _, A_t1_t = get_homogeneous_matrix(0, -0.195, 0.028, 90.0, 0.0, 0.0)
     elif tool_to_use == "painting_gun":
-        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 180.0) #0.0
+        _, _, A_ee_t1 = get_homogeneous_matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) #0.0
         set_body_pose(model, data, tool_base_body_id, A_ee_t1[:3, 3], rotm_to_quaternion(A_ee_t1[:3, :3])) 
         _, _, A_t1_t = get_homogeneous_matrix(0.0, 0.0, 0.21, 0.0, 0.0, 0.0) # 0.21
     else:
@@ -163,101 +171,108 @@ def main():
     A_ee_t = A_ee_t1 @ A_t1_t
     set_body_pose(model, data, tool_tip_body_id, A_ee_t[:3, 3], rotm_to_quaternion(A_ee_t[:3, :3])) # Update tool tip
 
-    # Get the Cartesian path stitched to the piece
-    cartesian_frames = []
+    #* Get the Cartesian path(s) stitched to the piece
+    traj_dict = defaultdict(list)   # {traj_idx: [(point_idx, body_id), ...]}
+
     for i in range(model.nbody):
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)
-        if name and name.startswith("point_") and name.endswith("_traj"):
-            cartesian_frames.append(i)
+        if name is None:
+            continue
+        match = re.fullmatch(r"point_(\d+)_traj_(\d+)", name)
+        if match:
+            point_idx = int(match.group(1))
+            traj_idx  = int(match.group(2))
+            traj_dict[traj_idx].append((point_idx, i))
 
-    cartesian_path = []
-    for frame_id in cartesian_frames:
-        pos = data.body(frame_id).xpos
-        rot = data.body(frame_id).xmat.reshape(3, 3)
-        euler_angles = rotm2euler(rot, degrees=False)
-        cartesian_path.append((pos, euler_angles))
+    full_path = []
+    for traj_idx in sorted(traj_dict.keys()):
+        points = sorted(traj_dict[traj_idx], key=lambda x: x[0])  # sort by point_idx
+        path = []
+        for _, body_id in points:
+            pos         = data.body(body_id).xpos.copy()
+            rot         = data.body(body_id).xmat.reshape(3, 3)
+            euler_angles = rotm2euler(rot, degrees=False)
+            path.append((pos, euler_angles))
+        full_path.append(path)
 
-    #* Densify the Cartesian path (NOTE: use a path homogeneously discretized)
-    cartesian_path = densify_cartesian_path(cartesian_path, eef_step=0.01)
+    print(f"Found {len(full_path)} trajectories:")
+    if verbose:
+        for i, path in enumerate(full_path):
+            print(f"  Trajectory {i+1}: {len(path)} waypoints")
+            print(f"  Waypoints: {[f'({p[0]}, {p[1]})' for p in path]}")
 
-    #! Solve IK on the trajectory
+    #! Now, for every trajectory ...
+    q_trajectory_full = []
     with mujoco.viewer.launch_passive(model, data) as viewer:
         input(f"Press Enter to start visualizing {ik_solver_to_use} solutions…")
-        q_path = []
-        q_path_refined = []
+        for traj_idx, cartesian_path in enumerate(full_path):
 
-        if import_data:
-            q_path = np.loadtxt(os.path.join(base_dir, f"workcell_optimization/results/q_path_{robot_to_use}_{ik_solver_to_use}.csv"), delimiter=",", skiprows=1)
-        else:
-            #* Get the path (no trajectory)
-            q_path, reach, cols, total_time = create_path(cartesian_path, model, data, rob_params, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, save_data)
+            #* Densify the Cartesian path (NOTE: use a path homogeneously discretized)
+            cartesian_path = densify_cartesian_path(cartesian_path, eef_step=0.005)  
+            q_path = []
 
-            #* Display
-            q_path_display = np.asarray(q_path)
+            if import_data:
+                q_trajectory_full = np.loadtxt(os.path.join(base_dir, f"workcell_optimization/results/q_traj_ur5e_0.csv"), delimiter=",", skiprows=1)
+            else:
+                #* Get the path (no trajectory)
+                q_path, reach, cols, total_time = create_path(cartesian_path, model, data, rob_params, tool_tip_site_id, A_w_b, A_ee_t, A_wl3_ee, viewer)
 
-            fig, axes = plt.subplots(6, 1, figsize=(12, 10), sharex=True)
-            for j in range(6):
-                axes[j].plot(q_path_display[:, j])
-                axes[j].set_ylabel(f'q{j+1} [rad]')
-                axes[j].grid(True)
-            axes[-1].set_xlabel('Waypoint index')
-            fig.suptitle('Joint path')
-            plt.tight_layout()
-            plt.show()
+                #* Display (and smooth)
+                q_path_display = np.asarray(q_path)
+                #q_path = smooth_q_path(q_path, window=3, polyorder=2)
 
-            #* Smooth the path
-            #q_path = smooth_q_path(q_path, window=20, polyorder=3)
+                fig, axes = plt.subplots(6, 1, figsize=(12, 10), sharex=True)
+                for j in range(6):
+                    axes[j].plot(np.degrees(q_path_display[:, j]))
+                    axes[j].set_ylabel(f'q{j+1} [deg]')
+                    axes[j].grid(True)
+                axes[-1].set_xlabel('Waypoint index')
+                fig.suptitle('Joint path')
+                plt.tight_layout()
+                plt.show()
 
-            if ik_solver_to_use == "dls":
-
-                unreachable = [i for i, v in enumerate(reach) if v == 1]
-                print(f"{fonts.green}Waypoints in positions {unreachable} are not reachable{fonts.reset}")
-
-                #* Check a-posteriori possible collisions and manipulability
-                for idx, q in enumerate(q_path):
-                    data.qpos[:rob_params.nu] = q
-                    mujoco.mj_forward(model, data)
-                    viewer.sync()
-                    n_collisions = get_collisions(model, data, verbose=True)
-                    manipulability = inverse_manipulability(q, model, data, rob_params, tool_tip_site_id)
-                    if n_collisions > 0:
-                        print(f"{fonts.red}Waypoint {idx+1} has {n_collisions} collision(s)!{fonts.reset}")
-                        input("Press Enter to visualize the collision(s)…")
-                        return
-                    if manipulability == 1e12:
-                        print(f"{fonts.red}Waypoint {idx+1} is in a singular configuration!{fonts.reset}")
-                        input("Press Enter to visualize the singularity…")
-                        return
-            elif ik_solver_to_use == "ikflow": #* Most checks are already built-in
-                   
+                #* Checks                
                 if sum(cols) > 0:
                     print(f"{fonts.red}Warning: {sum(cols)} waypoint(s) in the path are in collision!{fonts.reset}")
                     #return
                 if sum(reach) > 0:
                     print(f"{fonts.red}Warning: {sum(reach)} waypoint(s) in the path are unreachable!{fonts.reset}")
                     #return
-            else:
-                raise ValueError(f"Unknown IK solver type: {ik_solver_to_use}")
 
-            #* Display total time
-            print(f"{fonts.green}ik optimization completed in {total_time:.2f} seconds!{fonts.reset}")
+                #* Display total time
+                print(f"{fonts.green}ik optimization completed in {total_time:.2f} seconds!{fonts.reset}")
 
-        #* Time-optimal path parametrization (topp)
-        q_traj, _, _, _, _ = create_trajectory(
-            q_path=q_path,
-            rob_params=rob_params,
-            dt=1/rob_params.freq,
-            solver_wrapper="ecos",
-            #solver_wrapper="seidel",
-            #solver_wrapper="cvxpy",
-            save_data=save_data,
-            robot_to_use=robot_to_use,
-            ik_solver_to_use=ik_solver_to_use,
-            v_scaling=v_red_per,
-            a_scaling=a_red_per
-        )
-                 
-        input("Press Enter to visualize the best path found")
+                #* Time-optimal path parametrization (topp-ra)
+                q_traj, _, _, _, _ = topp_ra(q_path=q_path, rob_params=rob_params, dt=1/rob_params.freq, solver_wrapper="ecos",
+                                            v_scaling=v_red_per, a_scaling=a_red_per)
+                q_trajectory_full.append(q_traj)
+                '''
+                # Use a moveit-like approach (not time-optimal)
+                q_traj, _, _, _, _ = totg(q_path, rob_params, v_scaling=v_red_per, a_scaling=a_red_per, dt=1/rob_params.freq)
+                q_trajectory_full.append(q_traj)
+                '''
+
+                #* Save data, trajectory-by-trajectory
+                results_dir = os.path.join(base_dir, "workcell_optimization/results")
+                if save_data:
+                    if results_dir is None:
+                        raise ValueError("results_dir must be provided when save_data=True.")
+
+                    os.makedirs(results_dir, exist_ok=True)
+
+                    suffix = ""
+                    if robot_to_use is not None and ik_solver_to_use is not None:
+                        suffix = f"_{robot_to_use}_{traj_idx}"
+
+                    header = ",".join([f"q{i+1}" for i in range(q_path.shape[1])])
+
+                    #* Position trajectory
+                    np.savetxt(os.path.join(results_dir, f"q_traj{suffix}.csv"), q_traj, delimiter=",", header=header, comments="")
+
+                print(f"Trajectories saved to {results_dir}")
+
+
+        input("Press Enter to visualize the solution.")
         #* Set robot in the home configuration
         data.qpos[:rob_params.nu] = rob_params.home_configuration.tolist()
         mujoco.mj_forward(model, data)
@@ -269,7 +284,8 @@ def main():
         #* Update the robot configuration along the trajectory
         dt = 1/rob_params.freq
         t0 = time.perf_counter()
-        for i, q in enumerate(q_traj):
+        q_trajectory_full_flat = [q for q_traj in q_trajectory_full for q in q_traj]
+        for i, q in enumerate(q_trajectory_full_flat):
             data.qpos[:rob_params.nu] = q
             mujoco.mj_forward(model, data)
             viewer.sync()

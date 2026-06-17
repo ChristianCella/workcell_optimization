@@ -27,10 +27,10 @@ class GoFaRobot:
     freq: int = 250 # Hz
     home_configuration: np.ndarray = field(default_factory=lambda: np.radians([0.0, 5.0, 4.0, 0.0, 80.0, 0.0]))
     robot_reach: float = 0.95 
-    lb: list = field(default_factory=lambda: -2 * np.pi * np.ones(6))
-    ub: list = field(default_factory=lambda: 2 * np.pi * np.ones(6))
+    lb: list = field(default_factory=lambda: np.radians([-180.0, -180.0, -225.0, -180.0, -180.0, -270.0]))
+    ub: list = field(default_factory=lambda: np.radians([180.0, 180.0, 85.0, 180.0, 180.0, 270.0]))
     q_dot_max: np.ndarray = field(default_factory=lambda: np.array([2.18, 2.18, 2.44, 3.49, 3.49, 3.49]))
-    q_ddot_max: np.ndarray = field(default_factory=lambda: np.array([3.1, 3.1, 3.1, 3.1, 3.1, 3.1])) 
+    q_ddot_max: np.ndarray = field(default_factory=lambda: np.array([5.1, 5.1, 5.1, 5.1, 5.1, 5.1])) 
 
 @dataclass 
 class FanucCrx10iaLRobot:

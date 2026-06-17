@@ -1,9 +1,10 @@
 from parameters import Ur5eRobot, GoFaRobot, FanucCrx10iaLRobot, DoosanA0509Robot, FairinoFR10Robot
 
-robot_to_use = "fairino_FR10" # "ur5e" or "gofa5" or "fanuc_crx_10ia_l" or "doosan_a0509" or "fairino_FR10"
+robot_to_use = "fanuc_crx_10ia_l" # "ur5e" or "gofa5" or "fanuc_crx_10ia_l" or "doosan_a0509" or "fairino_FR10"
 tool_to_use = "painting_gun" # "welding_gun" or "screwdriver" or "painting_gun"
-piece_to_use = "cube" # "cube", "t_shape", or "reconstructed"
-ik_solver_to_use = "dls" # "ikflow" or "dls"
+piece_to_use = "svin000412" # "cube", "t_shape", "reconstructed", "svin000412"
+ik_solver_to_use = "trackik" # dls or trackik (mink, clik => avoid)
+verbose = False
 save_data = False
 import_data = False
 v_red_per = 0.1
@@ -62,5 +63,7 @@ elif piece_to_use == "t_shape":
     pie_name = "t_shape.xml"
 elif piece_to_use == "reconstructed":
     pie_name = "reconstructed.xml"
+elif piece_to_use == "svin000412":
+    pie_name = "svin000412.xml"
 else:
     raise ValueError(f"Unknown piece type: {piece_to_use}")
